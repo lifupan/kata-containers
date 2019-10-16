@@ -1,7 +1,4 @@
-on:
-  push:
-    tags:
-      - test*
+on: push
 
 jobs:
   get-artifact-list:
