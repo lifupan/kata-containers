@@ -44,6 +44,7 @@ jobs:
            pushd $GOPATH/src/github.com/amshinde/kata-packaging/release >>/dev/null
            echo "Current dir " $(pwd)
            # Get versions information
+           echo "GITHUB_REF" $GITHUB_REF
            tag=`echo $GITHUB_REF | cut -d/ -f3-`
            ../obs-packaging/gen_versions_txt.sh $tag
            # Build the kernel:
@@ -86,6 +87,7 @@ jobs:
            go get github.com/amshinde/kata-packaging || true
            pushd $GOPATH/src/github.com/amshinde/kata-packaging/release >>/dev/null
            # Get versions information
+           echo "GITHUB_REF" $GITHUB_REF
            tag=`echo $GITHUB_REF | cut -d/ -f3-`
            ../obs-packaging/gen_versions_txt.sh $tag
            # Build the VMM:
