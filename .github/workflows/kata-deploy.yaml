@@ -16,6 +16,7 @@ jobs:
           docker push katadocker/kata-deploy-ci:${{ github.sha }}
           cd kata-packaging
           pkg_sha=$(git rev-parse HEAD)
+          echo $pkg_sha
           echo ::set-env name=PKG_SHA::$pkg_sha
       - name: test-kata-deploy-ci-in-aks
         uses: ./kata-packaging/kata-deploy/action
