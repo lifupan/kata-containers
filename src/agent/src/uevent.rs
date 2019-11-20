@@ -4,7 +4,7 @@
 //
 
 use crate::device::{online_device, ROOT_BUS_PATH, SCSI_BLOCK_SUFFIX, SYSFS_DIR};
-use crate::grpc::SYSFS_MEMORY_ONLINE_PATH;
+use crate::rpc::SYSFS_MEMORY_ONLINE_PATH;
 use crate::netlink::{RtnlHandle, NETLINK_UEVENT};
 use crate::sandbox::Sandbox;
 use crate::GLOBAL_DEVICE_WATCHER;

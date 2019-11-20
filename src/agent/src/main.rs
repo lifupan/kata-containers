@@ -25,7 +25,6 @@ extern crate slog;
 extern crate slog_async;
 extern crate slog_json;
 
-use futures::*;
 use nix::sys::wait::{self, WaitStatus};
 use nix::unistd;
 use prctl::set_child_subreaper;
@@ -61,7 +60,7 @@ use sandbox::Sandbox;
 use slog::Logger;
 use uevent::watch_uevents;
 
-mod grpc;
+mod rpc;
 
 const NAME: &'static str = "kata-agent";
 const VSOCK_ADDR: &'static str = "vsock://-1";
@@ -138,7 +137,7 @@ fn main() -> Result<()> {
 
     // This "unused" variable is required as it enables the global (and crucially static) logger,
     // which is required to satisfy the the lifetime constraints of the auto-generated gRPC code.
-    let _guard = slog_scope::set_global_logger(logger.new(o!("subsystem" => "grpc")));
+    let _guard = slog_scope::set_global_logger(logger.new(o!("subsystem" => "rpc")));
 
     let shells = SHELLS.clone();
 
@@ -173,7 +172,7 @@ fn main() -> Result<()> {
     sandbox.lock().unwrap().sender = Some(tx);
 
     //vsock:///dev/vsock, port
-    let mut server = grpc::start(sandbox.clone(), VSOCK_ADDR, VSOCK_PORT);
+    let server = rpc::start(sandbox.clone(), VSOCK_ADDR, VSOCK_PORT);
 
     /*
         let _ = fs::remove_file("/tmp/testagent");
@@ -193,13 +192,14 @@ fn main() -> Result<()> {
     // are run in another thread or in the main thead?
     // let _ = rx.wait();
 
+    let _ = server.start().unwrap();
+
     handle.join().unwrap();
 
     if config.debug_console {
         shell_handle.join().unwrap();
     }
 
-    let _ = server.shutdown().wait();
     let _ = fs::remove_file("/tmp/testagent");
 
     Ok(())
