@@ -774,7 +774,8 @@ impl protocols::agent_ttrpc::AgentService for agentService {
         let eid = req.exec_id.clone();
         let s = Arc::clone(&self.sandbox);
         let mut sandbox = s.lock().unwrap();
-        let p = find_process(&mut sandbox, cid.as_str(), eid.as_str(), false).unwrap();
+        let p = find_process(&mut sandbox, cid.as_str(), eid.as_str(), false)
+            .map_err(|e| ttrpc::Error::RpcStatus(ttrpc::get_Status(ttrpc::Code::NOT_FOUND, format!("find process {}", e))))?;
 
         if p.term_master.is_none() {
             return Err(ttrpc::Error::RpcStatus(ttrpc::get_Status(ttrpc::Code::UNAVAILABLE, "no tty".to_string())));
