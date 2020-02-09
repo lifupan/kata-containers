@@ -34,6 +34,7 @@ extern crate scan_fmt;
 extern crate oci;
 extern crate path_absolutize;
 extern crate regex;
+extern crate encoding;
 
 // Convenience macro to obtain the scope logger
 macro_rules! sl {
@@ -51,6 +52,8 @@ pub mod specconv;
 // pub mod sync;
 pub mod capabilities;
 pub mod validator;
+
+mod init_assist;
 
 // pub mod factory;
 //pub mod configs;

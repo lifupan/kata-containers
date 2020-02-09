@@ -28,7 +28,7 @@ use crate::specconv::CreateOpts;
 // use crate::stats::Stats;
 use crate::capabilities::{self, CAPSMAP};
 use crate::cgroups::fs::{self as fscgroup, Manager as FsManager};
-use crate::{mount, validator};
+use crate::{mount, validator, init_assist};
 
 use protocols::agent::StatsContainerResponse;
 
@@ -538,6 +538,10 @@ impl BaseContainer for LinuxContainer {
         if !p.oci.Cwd.is_empty() {
             debug!(self.logger, "cwd: {}", p.oci.Cwd.as_str());
             unistd::chdir(p.oci.Cwd.as_str())?;
+        }
+        // execute init_assist before set user
+        if p.init {
+            init_assist::init_script(&mut p.oci);
         }
 
         // setup uid/gid
