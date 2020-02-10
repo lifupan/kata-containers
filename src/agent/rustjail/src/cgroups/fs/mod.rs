@@ -1299,9 +1299,16 @@ impl CgroupManager for Manager {
         };
 
         // BlkioStats
+        // note that virtiofs has no blkio stats
         info!(sl!(), "blkio_stats");
         let blkio_stats = if self.paths.get("blkio").is_some() {
-            SingularPtrField::some(Blkio().get_stats(self.paths.get("blkio").unwrap())?)
+            match Blkio().get_stats(self.paths.get("blkio").unwrap()) {
+                Ok(stat) => SingularPtrField::some(stat),
+                Err(e) => {
+                    warn!(sl!(), "failed to get blkio stats");
+                    SingularPtrField::none()
+                }
+            }
         } else {
             SingularPtrField::none()
         };
