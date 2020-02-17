@@ -103,7 +103,7 @@ pub fn init_script(process: &mut OCIProcess) {
     let run_mode = get_env(process.Env.to_vec(), "ali_run_mode");
     if (run_mode == "vm" || run_mode == "common_vm") && process.Args.len() > 0 {
         writeln!(log_file, "run common_vm");
-        let mut args: Vec<String> = vec!["/sbin/init".to_string()];
+        let mut args: Vec<String> = Vec::new();
         for ag in process.Args.iter() {
             args.push(ag.to_string());
         }
