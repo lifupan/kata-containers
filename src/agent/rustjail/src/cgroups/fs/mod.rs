@@ -19,6 +19,7 @@ use protocols::oci::{LinuxDeviceCgroup, LinuxResources, LinuxThrottleDevice, Lin
 use regex::Regex;
 use std::collections::HashMap;
 use std::fs;
+use std::path::Path;
 
 // Convenience macro to obtain the scope logger
 macro_rules! sl {
@@ -219,7 +220,7 @@ fn parse_size(s: &str, m: &HashMap<String, u128>) -> Result<u128> {
 
 fn custom_size(mut size: f64, base: f64, m: &Vec<String>) -> String {
     let mut i = 0;
-    while size > base {
+    while size >= base && i < m.len() - 1 {
         size /= base;
         i += 1;
     }
@@ -933,6 +934,11 @@ impl Subsystem for Blkio {
 fn get_blkio_stat(dir: &str, file: &str) -> Result<RepeatedField<BlkioStatsEntry>> {
     let p = format!("{}/{}", dir, file);
     let mut m = RepeatedField::new();
+
+    // do as runc
+    if !Path::new(&p).exists() {
+        return Ok(RepeatedField::new());
+    }
 
     for l in fs::read_to_string(p.as_str())?.lines() {
         let parts: Vec<&str> = l.split(' ').collect();
