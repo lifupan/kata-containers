@@ -186,7 +186,7 @@ fn mount_cgroups(
 
     // bind mount cgroups
     for (key, mount) in mounts.iter() {
-        info!(logger, "{}", key);
+        info!(logger, "mount cgroup subsystem {}", key);
         let source = if cpath.get(key).is_some() {
             cpath.get(key).unwrap()
         } else {
@@ -224,13 +224,11 @@ fn mount_cgroups(
             cached_size: CachedSize::default(),
         };
 
-        mount_from(
-            &bm,
-            rootfs,
-            flags | MsFlags::MS_REC | MsFlags::MS_BIND,
-            "",
-            "",
-        )?;
+        let mut mount_flags: MsFlags = flags | MsFlags::MS_REC | MsFlags::MS_BIND;
+        if key.contains("systemd") {
+            mount_flags &= !MsFlags::MS_RDONLY;
+        }
+        mount_from(&bm, rootfs, mount_flags, "", "")?;
 
         if key != base {
             let src = format!("{}/{}", m.destination.as_str(), key);
