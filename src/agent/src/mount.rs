@@ -22,7 +22,7 @@ use regex::Regex;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
-use crate::device::{get_pci_device_name, get_scsi_device_name, online_device};
+use crate::device::{get_device_name, get_pci_device_name, get_scsi_device_name, online_device};
 use crate::protocols::agent::Storage;
 use crate::Sandbox;
 use slog::Logger;
@@ -309,8 +309,36 @@ fn virtio9p_storage_handler(
 fn virtiommio_blk_storage_handler(
     logger: &Logger,
     storage: &Storage,
-    _sandbox: Arc<Mutex<Sandbox>>,
+    sandbox: Arc<Mutex<Sandbox>>,
 ) -> Result<String> {
+    info!(logger, "try to mount storage: {:?}", storage);
+    // Since the mmio blk device is also hotpluged, we must wait on the
+    // add uevent action of thos block device, then do the mount.
+    if storage.source.starts_with("/dev") {
+        let dev_path = Path::new(&storage.source);
+        match dev_path.file_name() {
+            // wait on the add event of this device
+            Some(name) => {
+                info!(
+                    logger,
+                    "try to wait on the device: {} appearance and ready", &storage.source
+                );
+                let _ = get_device_name(sandbox, name.to_str().unwrap())?;
+            }
+            None => {
+                return Err(ErrorKind::ErrorCode(format!(
+                    "failed to get the storage: {:?} device name",
+                    storage
+                ))
+                .into())
+            }
+        }
+    }
+
+    info!(
+        logger,
+        "the device: {} is ready, try to mount it", &storage.source
+    );
     //The source path is VmPath
     common_storage_handler(logger, storage)
 }

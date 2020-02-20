@@ -3,9 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-use crate::device::{online_device, ROOT_BUS_PATH, SCSI_BLOCK_SUFFIX, SYSFS_DIR};
-use crate::rpc::SYSFS_MEMORY_ONLINE_PATH;
+use crate::device::{
+    online_device, ROOT_BUS_PATH, ROOT_MMIO_BUS_PATH, SCSI_BLOCK_SUFFIX, SYSFS_DIR,
+};
 use crate::netlink::{RtnlHandle, NETLINK_UEVENT};
+use crate::rpc::SYSFS_MEMORY_ONLINE_PATH;
 use crate::sandbox::Sandbox;
 use crate::GLOBAL_DEVICE_WATCHER;
 use std::sync::{Arc, Mutex};
@@ -75,8 +77,9 @@ pub fn watch_uevents(sandbox: Arc<Mutex<Sandbox>>) {
 
                             // Check if device hotplug event results in a device node being created.
                             if event.devname != ""
-                                && event.devpath.starts_with(ROOT_BUS_PATH)
                                 && event.subsystem == "block"
+                                && (event.devpath.starts_with(ROOT_BUS_PATH)
+                                    || event.devpath.starts_with(ROOT_MMIO_BUS_PATH))
                             {
                                 let watcher = GLOBAL_DEVICE_WATCHER.clone();
                                 let mut w = watcher.lock().unwrap();

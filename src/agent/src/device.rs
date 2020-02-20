@@ -32,6 +32,7 @@ macro_rules! sl {
     target_arch = "powerpc64le",
     target_arch = "s390x"
 ))]
+pub const ROOT_MMIO_BUS_PATH: &str = "/devices/virtio-mmio-cmdline";
 pub const ROOT_BUS_PATH: &'static str = "/devices/pci0000:00";
 #[cfg(target_arch = "arm")]
 pub const ROOT_BUS_PATH: &'static str = "/devices/platform/4010000000.pcie/pci0000:00";
