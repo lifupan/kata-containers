@@ -57,7 +57,7 @@ pub fn init_script(process: &mut OCIProcess) {
         .write(true)
         .truncate(true)
         .create(true)
-        .open("/tmp/agent.log")
+        .open("/agent.log")
         .unwrap();
 
     setup_env(&mut log_file, process);
