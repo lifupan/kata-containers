@@ -6,7 +6,7 @@
 use lazy_static;
 use protocols::oci::{Hook, Linux, LinuxNamespace, LinuxResources, POSIXRlimit, Spec};
 use serde_json;
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::fs;
 use std::mem;
 use std::os::unix::io::RawFd;
@@ -676,19 +676,21 @@ fn do_exec(logger: &Logger, path: &str, args: &[String], env: &[String]) -> Resu
     let logger = logger.new(o!("command" => "exec"));
 
     let p = CString::new(path.to_string()).unwrap();
-    let a: Vec<CString> = args
+    let sa: Vec<CString> = args
         .iter()
         .map(|s| CString::new(s.to_string()).unwrap_or_default())
         .collect();
+    let a: Vec<&CStr> = sa.iter().map(|s| s.as_c_str()).collect();
 
     for (key, _) in env::vars() {
         env::remove_var(key);
     }
 
     for e in env.iter() {
-        let v: Vec<&str> = e.split("=").collect();
+        let v: Vec<&str> = e.splitn(2, "=").collect();
         if v.len() != 2 {
             info!(logger, "incorrect env config!");
+            continue;
         }
         env::set_var(v[0], v[1]);
     }
@@ -700,7 +702,7 @@ fn do_exec(logger: &Logger, path: &str, args: &[String], env: &[String]) -> Resu
         */
     // execvp doesn't use env for the search path, so we set env manually
     debug!(logger, "exec process right now!");
-    if let Err(e) = unistd::execvp(&p, &a) {
+    if let Err(e) = unistd::execvp(p.as_c_str(), a.as_slice()) {
         info!(logger, "execve failed!!!");
         info!(logger, "binary: {:?}, args: {:?}, envs: {:?}", p, a, env);
         match e {
