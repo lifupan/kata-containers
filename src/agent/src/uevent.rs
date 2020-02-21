@@ -107,6 +107,11 @@ pub fn watch_uevents(sandbox: Arc<Mutex<Sandbox>>) {
                                             {
                                                 (*dev_addr).ends_with(SCSI_BLOCK_SUFFIX) &&
                                                 devpath.contains(*dev_addr)
+                                            } ||
+                                            // virtio-mmio block device
+                                            {
+                                                devpath.starts_with(ROOT_MMIO_BUS_PATH) &&
+                                                devpath.contains(*dev_addr)
                                             }
                                     })
                                     .map(|(k, sender)| {
