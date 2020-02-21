@@ -2,18 +2,21 @@
 use encoding::all::ISO_8859_1;
 use encoding::{EncoderTrap, Encoding};
 use protocols::oci::Process as OCIProcess;
+use slog::{self, Drain};
+use slog_async;
+use slog_term;
+use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::path::Path;
 use std::process::Command;
-use std::env;
 
-pub fn setup_env(f: &mut File, process: &OCIProcess) {
+pub fn setup_env(logger: slog::Logger, process: &OCIProcess) {
     let fs_path = Path::new("/etc/profile.d");
     if !fs_path.exists() {
         fs::create_dir_all(fs_path)
-            .map_err(|err| writeln!(f, "failed to create /etc/profile.d: {}", err));
+            .map_err(|err| error!(logger, "failed to create /etc/profile.d: {}", err));
     }
 
     let mut data = "".to_string();
@@ -43,24 +46,33 @@ pub fn setup_env(f: &mut File, process: &OCIProcess) {
 
     let env_file = Path::new(fs_path).join("pouchenv.sh");
     fs::write(env_file, data.as_str())
-        .map_err(|err| writeln!(f, "failed to create pouchenv.sh: {}", err));
+        .map_err(|err| error!(logger, "failed to create pouchenv.sh: {}", err));
 
     // keep envs in properties file. As java properties files are ISO-8859-1 encoded.
     let iso_file = "/etc/instanceInfo";
     let iso_byte: Vec<u8> = ISO_8859_1.encode(&data_iso, EncoderTrap::Strict).unwrap();
     fs::write(iso_file, iso_byte)
-        .map_err(|err| writeln!(f, "failed to create /etc/instanceInfo: {}", err));
+        .map_err(|err| error!(logger, "failed to create /etc/instanceInfo: {}", err));
 }
 
 pub fn init_script(process: &mut OCIProcess) {
-    let mut log_file = OpenOptions::new()
+    let mut logger = slog::Logger::root(slog::Discard, o!());
+    match OpenOptions::new()
         .write(true)
         .truncate(true)
         .create(true)
-        .open("/agent.log")
-        .unwrap();
+        .open("/tmp/agent.log")
+    {
+        Ok(f) => {
+            let decorator = slog_term::PlainDecorator::new(f);
+            let drain = slog_term::FullFormat::new(decorator).build().fuse();
+            let drain = slog_async::Async::new(drain).build().fuse();
+            logger = slog::Logger::root(drain, o!());
+        }
+        Err(_) => (),
+    }
 
-    setup_env(&mut log_file, process);
+    setup_env(logger.clone(), process);
 
     // touch rpm (because an overlay bug: https://github.com/docker/for-linux/issues/72)
     if Path::new("/var/lib/rpm").exists() {
@@ -90,7 +102,7 @@ pub fn init_script(process: &mut OCIProcess) {
 
     // script should run with uid 0 (root user)
     for script in script_vec.iter() {
-        writeln!(log_file, "execute scirpt {}", &script);
+        info!(logger, "execute scirpt {}", &script);
         // fork a child process to execute script
         match Command::new(&script).spawn() {
             Ok(mut child) => {
@@ -102,7 +114,7 @@ pub fn init_script(process: &mut OCIProcess) {
 
     let run_mode = get_env(process.Env.to_vec(), "ali_run_mode");
     if (run_mode == "vm" || run_mode == "common_vm") && process.Args.len() > 0 {
-        writeln!(log_file, "run common_vm");
+        info!(logger, "run common_vm");
         let mut args: Vec<String> = Vec::new();
         for ag in process.Args.iter() {
             args.push(ag.to_string());
@@ -135,17 +147,17 @@ pub fn init_script(process: &mut OCIProcess) {
 
                 output = output + "\n" + &user_cmd;
 
-                writeln!(log_file, "change target file {}: {}", target, &output);
+                info!(logger, "change target file {}: {}", target, &output);
 
                 fs::write(target, output.as_bytes())
-                    .map_err(|err| writeln!(log_file, "failed to write {}: {}", target, err));
+                    .map_err(|err| error!(logger, "failed to write {}: {}", target, err));
 
                 // reset args
                 let re_args: Vec<String> = vec!["/sbin/init".to_string()];
                 process.set_Args(::protobuf::RepeatedField::from_vec(re_args));
             }
             Err(err) => {
-                writeln!(log_file, "failed to open target file {}: {}", target, err);
+                error!(logger, "failed to open target file {}: {}", target, err);
             }
         }
     }
