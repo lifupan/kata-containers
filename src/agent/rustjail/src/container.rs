@@ -531,21 +531,16 @@ impl BaseContainer for LinuxContainer {
         setup_stdio(&p)?;
 
         if to_new.contains(CloneFlags::CLONE_NEWNS) {
-            info!(self.logger, "finish rootfs!");
             mount::finish_rootfs(spec)?;
         }
 
         if !p.oci.Cwd.is_empty() {
-            debug!(self.logger, "cwd: {}", p.oci.Cwd.as_str());
             unistd::chdir(p.oci.Cwd.as_str())?;
         }
         // execute init_assist before set user
         if p.init {
             init_assist::init_script(&mut p.oci);
         }
-
-        // setup uid/gid
-        info!(self.logger, "{:?}", p.oci.clone());
 
         if p.oci.User.is_some() {
             let guser = p.oci.User.as_ref().unwrap();
@@ -571,7 +566,6 @@ impl BaseContainer for LinuxContainer {
 
         if p.oci.Capabilities.is_some() {
             let c = p.oci.Capabilities.as_ref().unwrap();
-            info!(self.logger, "drop capabilities!");
             capabilities::drop_priviledges(&self.logger, c)?;
         }
 
@@ -587,8 +581,6 @@ impl BaseContainer for LinuxContainer {
         // For exec process, only need to join existing namespaces,
         // the namespaces are got from init process or from
         // saved spec.
-        debug!(self.logger, "before setup execfifo!");
-        info!(self.logger, "{}", VER_MARKER);
         if p.init {
             let fd = fcntl::open(
                 format!("/proc/self/fd/{}", fifofd).as_str(),
@@ -908,8 +900,9 @@ fn join_namespaces(
             // and the wait for child exit to get grandchild
 
             if init {
-                info!(logger, "wait for hook!");
+                info!(logger, "notify child parent ready to run prestart hook!");
                 let _ = read_sync(pfd)?;
+                info!(logger, "get ready to run prestart hook!");
 
                 // run prestart hook
                 if spec.Hooks.is_some() {
@@ -921,10 +914,14 @@ fn join_namespaces(
                 }
 
                 // notify child run prestart hooks completed
+                info!(logger, "notify child run prestart hook completed!");
                 write_sync(pwfd, 0)?;
-
+                info!(logger, "notify child parent ready to run poststart hook!");
                 // wait to run poststart hook
                 let _ = read_sync(pfd)?;
+                info!(logger, "get ready to run poststart hook!");
+
+
                 //run poststart hook
                 if spec.Hooks.is_some() {
                     info!(logger, "poststart");
@@ -937,6 +934,7 @@ fn join_namespaces(
             unistd::close(pfd)?;
             unistd::close(pwfd)?;
 
+            info!(logger, "parent return!");
             return Ok((Pid::from_raw(pid), cfd));
         }
         ForkResult::Child => {
@@ -1001,8 +999,6 @@ fn join_namespaces(
                 }
         */
         if let Err(e) = sched::setns(fd, s) {
-            info!(logger, "setns error: {}", e.as_errno().unwrap().desc());
-            info!(logger, "setns: ns type: {:?}", s);
             if s == CloneFlags::CLONE_NEWUSER {
                 if e.as_errno().unwrap() != Errno::EINVAL {
                     return Err(e.into());
@@ -1019,7 +1015,6 @@ fn join_namespaces(
         }
     }
 
-    info!(logger, "to_new: {:?}", to_new);
     sched::unshare(to_new & !CloneFlags::CLONE_NEWUSER)?;
 
     if userns {
@@ -1041,16 +1036,7 @@ fn join_namespaces(
                 // set child pid to topmost parent and the exit
                 write_sync(cfd, child.as_raw())?;
 
-                info!(
-                    logger,
-                    "json: {}",
-                    serde_json::to_string(&SyncPC {
-                        pid: child.as_raw()
-                    })
-                    .unwrap()
-                );
                 // wait for parent read it and the continue
-                info!(logger, "after send out child pid!");
                 let _ = read_sync(crfd)?;
 
                 // notify child to continue.
@@ -1074,7 +1060,6 @@ fn join_namespaces(
 
     if to_new.contains(CloneFlags::CLONE_NEWNS) {
         // setup rootfs
-        info!(logger, "setup rootfs!");
         mount::init_rootfs(&logger, &spec, &cm.paths, &cm.mounts, bind_device)?;
     }
 
@@ -1110,21 +1095,7 @@ fn join_namespaces(
         // setup sysctl
         set_sysctls(&linux.Sysctl)?;
         unistd::chdir("/")?;
-        if let Err(_) = stat::stat("marker") {
-            info!(logger, "not in expect root!!");
-        }
-        info!(logger, "in expect rootfs!");
-
-        if let Err(_) = stat::stat("/bin/sh") {
-            info!(logger, "no '/bin/sh'???");
-        }
     }
-
-    // notify parent to continue before block on exec fifo
-
-    info!(logger, "rootfs: {}", &rootfs);
-
-    // block on exec fifo
 
     Ok((Pid::from_raw(-1), cfd))
 }
