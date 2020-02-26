@@ -5,6 +5,6 @@ authors = ["Hui Zhu <teawater@hyper.sh>"]
 edition = "2018"
 
 [dependencies]
-ttrpc = { git="https://github.com/lifupan/ttrpc-rust", branch="vsock" }
+ttrpc = { git="http://gitlab.alibaba-inc.com/virtcontainers/ttrpc.git", branch="master" }
 protobuf = "=2.8.1"
 futures = "0.1.27"

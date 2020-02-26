@@ -7,10 +7,10 @@ edition = "2018"
 [dependencies]
 oci = { path = "oci" }
 rustjail = { path = "rustjail" }
-protocols = { path = "protocols" }
+protocols = { git = "http://gitlab.alibaba-inc.com/virtcontainers/agent-protocols.git" }
 lazy_static = "1.3.0"
 error-chain = "0.12.1"
-ttrpc = { git="https://github.com/lifupan/ttrpc-rust", branch="vsock" }
+ttrpc = { git="http://gitlab.alibaba-inc.com/virtcontainers/ttrpc.git", branch="master" }
 protobuf = "=2.8.1"
 libc = "0.2.58"
 nix = "0.17.0"
