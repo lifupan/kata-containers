@@ -28,7 +28,7 @@ use crate::specconv::CreateOpts;
 // use crate::stats::Stats;
 use crate::capabilities::{self, CAPSMAP};
 use crate::cgroups::fs::{self as fscgroup, Manager as FsManager};
-use crate::{mount, validator, init_assist};
+use crate::{init_assist, mount, validator};
 
 use protocols::agent::StatsContainerResponse;
 
@@ -694,25 +694,16 @@ fn do_exec(logger: &Logger, path: &str, args: &[String], env: &[String]) -> Resu
         .collect();
         */
     // execvp doesn't use env for the search path, so we set env manually
-    debug!(logger, "exec process right now!");
+    // debug!(logger, "exec process right now!");
     if let Err(e) = unistd::execvp(p.as_c_str(), a.as_slice()) {
-        info!(logger, "execve failed!!!");
-        info!(logger, "binary: {:?}, args: {:?}, envs: {:?}", p, a, env);
+        //     info!(logger, "execve failed!!!");
+        //     info!(logger, "binary: {:?}, args: {:?}, envs: {:?}", p, a, env);
         match e {
             nix::Error::Sys(errno) => {
-                info!(logger, "{}", errno.desc());
+                std::process::exit(errno as i32);
             }
-            Error::InvalidPath => {
-                info!(logger, "invalid path");
-            }
-            Error::InvalidUtf8 => {
-                info!(logger, "invalid utf8");
-            }
-            Error::UnsupportedOperation => {
-                info!(logger, "unsupported operation");
-            }
+            _ => std::process::exit(-2),
         }
-        std::process::exit(-2);
     }
     // should never reach here
     Ok(())
@@ -921,7 +912,6 @@ fn join_namespaces(
                 // wait to run poststart hook
                 let _ = read_sync(pfd)?;
                 info!(logger, "get ready to run poststart hook!");
-
 
                 //run poststart hook
                 if spec.Hooks.is_some() {
