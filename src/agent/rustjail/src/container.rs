@@ -629,6 +629,7 @@ impl BaseContainer for LinuxContainer {
         }
 
         self.status = Some("stopped".to_string());
+        fs::remove_dir_all(&self.root)?;
         Ok(())
     }
 
