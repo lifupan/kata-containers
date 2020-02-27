@@ -1330,7 +1330,7 @@ fn is_signal_handled(pid: pid_t, signum: u32) -> bool {
                 return false;
             }
             let sig_cgt_str = mask_vec[1];
-            let sig_cgt_mask = match u64::from_str_radix(sig_cgt_str, 16) {
+            let sig_cgt_mask = match u64::from_str_radix(sig_cgt_str.trim(), 16) {
                 Ok(h) => h,
                 Err(_) => {
                     warn!(sl!(), "failed to parse the str {} to hex\n", sig_cgt_str);
