@@ -433,17 +433,17 @@ impl BaseContainer for LinuxContainer {
                     info!(self.logger, "parent process error out!");
                     return Err(e);
                 } else if parent == 1 {
-                    info!(self.logger, "child process 1 error out!");
+                    // info!(self.logger, "child process 1 error out!");
                     std::process::exit(-1);
                 } else {
-                    info!(self.logger, "child process 2 error out!");
+                    // info!(self.logger, "child process 2 error out!");
                     std::process::exit(-2);
                 }
             }
         };
-        info!(self.logger, "entered namespaces!");
         if child != Pid::from_raw(-1) {
             // parent
+            info!(self.logger, "entered namespaces!");
             p.pid = child.as_raw();
             self.status = Some("created".to_string());
             if p.init {
