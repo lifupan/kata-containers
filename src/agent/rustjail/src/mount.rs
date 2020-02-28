@@ -98,7 +98,6 @@ lazy_static! {
 }
 
 pub fn init_rootfs(
-    logger: &Logger,
     spec: &Spec,
     cpath: &HashMap<String, String>,
     mounts: &HashMap<String, String>,
@@ -134,7 +133,7 @@ pub fn init_rootfs(
             return Err(ErrorKind::Nix(nix::Error::Sys(Errno::EINVAL)).into());
         }
         if m.field_type == "cgroup" {
-            mount_cgroups(logger, m, rootfs, flags, &data, cpath, mounts)?;
+            mount_cgroups(m, rootfs, flags, &data, cpath, mounts)?;
         } else {
             if m.destination == "/dev" {
                 flags &= !MsFlags::MS_RDONLY;
@@ -157,7 +156,6 @@ pub fn init_rootfs(
 }
 
 fn mount_cgroups(
-    logger: &Logger,
     m: &Mount,
     rootfs: &str,
     flags: MsFlags,
@@ -176,7 +174,7 @@ fn mount_cgroups(
     };
 
     let cflags = MsFlags::MS_NOEXEC | MsFlags::MS_NOSUID | MsFlags::MS_NODEV;
-    info!(logger, "tmpfs");
+    //  info!(logger, "tmpfs");
     mount_from(&ctm, rootfs, cflags, "", "")?;
     let olddir = unistd::getcwd()?;
 
@@ -186,7 +184,7 @@ fn mount_cgroups(
 
     // bind mount cgroups
     for (key, mount) in mounts.iter() {
-        info!(logger, "mount cgroup subsystem {}", key);
+        //   info!(logger, "mount cgroup subsystem {}", key);
         let source = if cpath.get(key).is_some() {
             cpath.get(key).unwrap()
         } else {
@@ -213,7 +211,7 @@ fn mount_cgroups(
 
         srcs.insert(source.to_string());
 
-        info!(logger, "{}", destination.as_str());
+        //   info!(logger, "{}", destination.as_str());
 
         let bm = Mount {
             source: source.to_string(),
@@ -234,13 +232,14 @@ fn mount_cgroups(
             let src = format!("{}/{}", m.destination.as_str(), key);
             match unix::fs::symlink(destination.as_str(), &src[1..]) {
                 Err(e) => {
-                    info!(
-                        logger,
-                        "symlink: {} {} err: {}",
-                        key,
-                        destination.as_str(),
-                        e.to_string()
-                    );
+                    /*     info!(
+                            logger,
+                            "symlink: {} {} err: {}",
+                            key,
+                            destination.as_str(),
+                            e.to_string()
+                        );
+                    */
                     return Err(e.into());
                 }
                 Ok(_) => {}

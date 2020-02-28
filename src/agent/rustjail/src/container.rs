@@ -682,7 +682,7 @@ fn do_exec(logger: &Logger, path: &str, args: &[String], env: &[String]) -> Resu
     for e in env.iter() {
         let v: Vec<&str> = e.splitn(2, "=").collect();
         if v.len() != 2 {
-            info!(logger, "incorrect env config!");
+            //          info!(logger, "incorrect env config!");
             continue;
         }
         env::set_var(v[0], v[1]);
@@ -1051,7 +1051,7 @@ fn join_namespaces(
 
     if to_new.contains(CloneFlags::CLONE_NEWNS) {
         // setup rootfs
-        mount::init_rootfs(&logger, &spec, &cm.paths, &cm.mounts, bind_device)?;
+        mount::init_rootfs(&spec, &cm.paths, &cm.mounts, bind_device)?;
     }
 
     // wait until parent notified
