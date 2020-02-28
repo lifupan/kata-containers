@@ -54,6 +54,7 @@ use slog::{debug, info, o, Logger};
 const STATE_FILENAME: &'static str = "state.json";
 const EXEC_FIFO_FILENAME: &'static str = "exec.fifo";
 const VER_MARKER: &'static str = "1.2.5";
+const PID_NS_PATH: &str = "/proc/self/ns/pid";
 
 type Status = Option<String>;
 pub type Config = CreateOpts;
@@ -373,7 +374,7 @@ impl BaseContainer for LinuxContainer {
         info!(self.logger, "got namespaces {:?}!\n", nses);
         let mut to_new = CloneFlags::empty();
         let mut to_join = Vec::new();
-        let mut pidns = false;
+        let mut pidns = None;
         let mut userns = false;
         for ns in &nses {
             let s = NAMESPACES.get(&ns.Type.as_str());
@@ -383,33 +384,43 @@ impl BaseContainer for LinuxContainer {
             let s = s.unwrap();
 
             if ns.Path.is_empty() {
-                to_new.set(*s, true);
+                // skip the pidns since it will be dealt separately.
+                if *s != CloneFlags::CLONE_NEWPID {
+                    to_new.set(*s, true);
+                }
             } else {
-                let fd = match fcntl::open(ns.Path.as_str(), OFlag::empty(), Mode::empty()) {
+                let fd = match fcntl::open(ns.Path.as_str(), OFlag::O_CLOEXEC, Mode::empty()) {
                     Ok(v) => v,
                     Err(e) => {
-                        info!(
+                        error!(
                             self.logger,
                             "cannot open type: {} path: {}",
                             ns.Type.clone(),
                             ns.Path.clone()
                         );
-                        info!(self.logger, "error is : {}", e.as_errno().unwrap().desc());
+                        error!(self.logger, "error is : {}", e.as_errno().unwrap().desc());
                         return Err(e.into());
                     }
                 };
                 //		.chain_err(|| format!("fail to open ns {}", &ns.Type))?;
-                to_join.push((*s, fd));
-            }
-
-            if *s == CloneFlags::CLONE_NEWPID {
-                pidns = true;
+                if *s == CloneFlags::CLONE_NEWPID {
+                    pidns = Some(fd);
+                } else {
+                    to_join.push((*s, fd));
+                }
             }
         }
 
-        if to_new.contains(CloneFlags::CLONE_NEWUSER) {
-            userns = true;
-        }
+        let old_pid_ns = match fcntl::open(PID_NS_PATH, OFlag::O_CLOEXEC, Mode::empty()) {
+            Ok(v) => v,
+            Err(e) => {
+                error!(
+                    self.logger,
+                    "cannot open pid ns path: {} with error: {:?}", PID_NS_PATH, e
+                );
+                return Err(e.into());
+            }
+        };
 
         let mut parent: u32 = 0;
         let st = self.oci_state()?;
@@ -420,6 +431,7 @@ impl BaseContainer for LinuxContainer {
             to_new,
             &to_join,
             pidns,
+            old_pid_ns,
             userns,
             p.init,
             self.config.no_pivot_root,
@@ -432,12 +444,12 @@ impl BaseContainer for LinuxContainer {
                 if parent == 0 {
                     info!(self.logger, "parent process error out!");
                     return Err(e);
-                } else if parent == 1 {
-                    // info!(self.logger, "child process 1 error out!");
-                    std::process::exit(-1);
                 } else {
-                    // info!(self.logger, "child process 2 error out!");
-                    std::process::exit(-2);
+                    // info!(self.logger, "child process 1 error out!");
+                    unsafe {
+                        libc::_exit(-1);
+                    }
+                    return Err(e);
                 }
             }
         };
@@ -576,6 +588,10 @@ impl BaseContainer for LinuxContainer {
             write_sync(cfd, 0)?;
         }
 
+        /*      let path = Path::new("/test.txt");
+               let mut file = std::fs::File::create(&path)?;
+               file.write_all(p.oci.Args.to_vec()[0].as_bytes());
+        */
         // new and the stat parent process
         // For init process, we need to setup a lot of things
         // For exec process, only need to join existing namespaces,
@@ -802,7 +818,8 @@ fn join_namespaces(
     spec: &Spec,
     to_new: CloneFlags,
     to_join: &Vec<(CloneFlags, RawFd)>,
-    pidns: bool,
+    pidns: Option<RawFd>,
+    old_pid_ns: RawFd,
     userns: bool,
     init: bool,
     no_pivot: bool,
@@ -820,14 +837,26 @@ fn join_namespaces(
     let linux = spec.Linux.as_ref().unwrap();
     let res = linux.Resources.as_ref();
 
+    if pidns.is_some() {
+        sched::setns(pidns.unwrap(), CloneFlags::CLONE_NEWPID)
+            .chain_err(|| "failed to join pidns")?;
+        unistd::close(pidns.unwrap())?;
+    } else {
+        sched::unshare(CloneFlags::CLONE_NEWPID)?;
+    }
+    defer!({
+        sched::setns(old_pid_ns, CloneFlags::CLONE_NEWPID);
+    });
+
     match unistd::fork()? {
         ForkResult::Parent { child } => {
             // let mut pfile = unsafe { File::from_raw_fd(pfd) };
+            defer!(sched::setns(old_pid_ns, CloneFlags::CLONE_NEWPID); unistd::close(old_pid_ns););
             unistd::close(cfd)?;
             unistd::close(crfd)?;
 
             //wait child setup user namespace
-            let _ = read_sync(pfd)?;
+            let _ = read_sync(pfd)?; //1 read
 
             if userns {
                 // setup uid/gid mappings
@@ -847,7 +876,12 @@ fn join_namespaces(
             if init {
                 if res.is_some() {
                     info!(logger, "apply cgroups!");
-                    cm.set(res.unwrap(), false)?;
+                    match cm.set(res.unwrap(), false) {
+                        Err(e) => {
+                            return Err(e);
+                        }
+                        Ok(_) => (),
+                    }
                 }
             }
 
@@ -855,45 +889,19 @@ fn join_namespaces(
                 cm.apply(child.as_raw())?;
             }
 
-            write_sync(pwfd, 0)?;
+            //   write_sync(pwfd, 0)?;   //2 write
+            write_sync(pwfd, 0)?; //2 write
 
             let mut pid = child.as_raw();
             info!(logger, "first child! {}", pid);
-            info!(logger, "wait for final child!");
-            if pidns {
-                pid = read_sync(pfd)?;
-                // pfile.read_to_string(&mut json)?;
-                /*
-                let msg: SyncPC = match serde_json::from_reader(&mut pfile) {
-                    Ok(u) => u,
-                    Err(e) => {
-                        match e.classify() {
-                            Category::Io => info!("Io error!"),
-                            Category::Syntax => info!("syntax error!"),
-                            Category::Data => info!("data error!"),
-                            Category::Eof => info!("end of file!"),
-                        }
-
-                        return Err(ErrorKind::Serde(e).into());
-                    }
-                };
-                */
-                // notify child continue
-                info!(logger, "got final child pid! {}", pid);
-                write_sync(pwfd, 0)?;
-                info!(logger, "resume child!");
-                // wait for child to exit
-                // Since the child would be reaped by our reaper, so
-                // there is no need reap the child here.
-                // wait::waitpid(Some(child), None);
-            }
+            //  info!(logger, "wait for final child!")
             // read out child pid here. we don't use
             // cgroup to get it
             // and the wait for child exit to get grandchild
 
             if init {
                 info!(logger, "notify child parent ready to run prestart hook!");
-                let _ = read_sync(pfd)?;
+                let _ = read_sync(pfd)?; // 3 read
                 info!(logger, "get ready to run prestart hook!");
 
                 // run prestart hook
@@ -907,10 +915,10 @@ fn join_namespaces(
 
                 // notify child run prestart hooks completed
                 info!(logger, "notify child run prestart hook completed!");
-                write_sync(pwfd, 0)?;
+                write_sync(pwfd, 0)?; // 4 write
                 info!(logger, "notify child parent ready to run poststart hook!");
                 // wait to run poststart hook
-                let _ = read_sync(pfd)?;
+                let _ = read_sync(pfd)?; // 5 read
                 info!(logger, "get ready to run poststart hook!");
 
                 //run poststart hook
@@ -926,7 +934,7 @@ fn join_namespaces(
             unistd::close(pwfd)?;
 
             info!(logger, "parent return!");
-            return Ok((Pid::from_raw(pid), cfd));
+            return Ok((Pid::from_raw(pid), -1));
         }
         ForkResult::Child => {
             *parent = 1;
@@ -956,8 +964,9 @@ fn join_namespaces(
                 sched::unshare(CloneFlags::CLONE_NEWUSER)?;
             }
 
-            write_sync(cfd, 0)?;
-            let _ = read_sync(crfd)?;
+            // notify parent unshare user ns completed.
+            write_sync(cfd, 0)?; // 1 write
+            let _ = read_sync(crfd)?; // 2 read
 
             if userns {
                 setid(Uid::from_raw(0), Gid::from_raw(0))?;
@@ -1012,35 +1021,6 @@ fn join_namespaces(
         bind_device = true;
     }
 
-    // create a pipe for sync between parent and child.
-    // here we should make sure the parent return pid before
-    // the child notify grand parent to run hooks, otherwise
-    // both of the parent and his child would write cfd at the same
-    // time which would mesh the grand parent to read.
-    let (chfd, phfd) = unistd::pipe2(OFlag::O_CLOEXEC)
-        .chain_err(|| "failed to create pipe for syncing run hooks")?;
-
-    if pidns {
-        match unistd::fork()? {
-            ForkResult::Parent { child } => {
-                unistd::close(chfd)?;
-                // set child pid to topmost parent and the exit
-                write_sync(cfd, child.as_raw())?;
-
-                // wait for parent read it and the continue
-                let _ = read_sync(crfd)?;
-
-                // notify child to continue.
-                write_sync(phfd, 0)?;
-                std::process::exit(0);
-            }
-            ForkResult::Child => {
-                *parent = 2;
-                unistd::close(phfd)?;
-            }
-        }
-    }
-
     if to_new.contains(CloneFlags::CLONE_NEWUTS) {
         unistd::sethostname(&spec.Hostname)?;
     }
@@ -1054,20 +1034,12 @@ fn join_namespaces(
         mount::init_rootfs(&spec, &cm.paths, &cm.mounts, bind_device)?;
     }
 
-    // wait until parent notified
-    if pidns {
-        let _ = read_sync(chfd)?;
-    }
-    unistd::close(chfd)?;
-
     if init {
         // notify parent to run prestart hooks
-        write_sync(cfd, 0)?;
-        // wait parent run prestart hooks
-        let _ = read_sync(crfd)?;
+        write_sync(cfd, 0)?; // 3 write
+                             // wait parent run prestart hooks
+        let _ = read_sync(crfd)?; // 4 read
     }
-
-    unistd::close(crfd)?;
 
     if mount_fd != -1 {
         sched::setns(mount_fd, CloneFlags::CLONE_NEWNS)?;
