@@ -1051,7 +1051,7 @@ fn join_namespaces(
 
     if to_new.contains(CloneFlags::CLONE_NEWNS) {
         // setup rootfs
-        mount::init_rootfs(&logger, &spec, &cm.paths, &cm.mounts, bind_device)?;
+        mount::init_rootfs(&spec, &cm.paths, &cm.mounts, bind_device)?;
     }
 
     // wait until parent notified
