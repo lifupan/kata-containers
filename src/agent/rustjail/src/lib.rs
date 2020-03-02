@@ -52,6 +52,7 @@ pub mod specconv;
 // pub mod sync;
 pub mod capabilities;
 pub mod validator;
+pub mod sync;
 
 mod init_assist;
 

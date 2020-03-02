@@ -25,6 +25,7 @@ use crate::process::Process;
 // use crate::intelrdt::Manager as RdtManager;
 use crate::errors::*;
 use crate::specconv::CreateOpts;
+use crate::sync::*;
 // use crate::stats::Stats;
 use crate::capabilities::{self, CAPSMAP};
 use crate::cgroups::fs::{self as fscgroup, Manager as FsManager};
@@ -585,7 +586,7 @@ impl BaseContainer for LinuxContainer {
             // notify parent to run poststart hooks
             // cfd is closed when return from join_namespaces
             // should retunr cfile instead of cfd?
-            write_sync(cfd, 0)?;
+            write_sync(cfd, MSG_TYPE::OK, "")?;
         }
 
         /*      let path = Path::new("/test.txt");
@@ -763,56 +764,6 @@ fn get_namespaces(linux: &Linux, init: bool, init_pid: pid_t) -> Result<Vec<Linu
     Ok(ns)
 }
 
-pub const PIDSIZE: usize = mem::size_of::<pid_t>();
-
-fn read_sync(fd: RawFd) -> Result<pid_t> {
-    let mut v: [u8; PIDSIZE] = [0; PIDSIZE];
-    let mut len = 0;
-
-    loop {
-        match unistd::read(fd, &mut v[len..]) {
-            Ok(l) => {
-                len += l;
-                if len == PIDSIZE {
-                    break;
-                }
-            }
-
-            Err(e) => {
-                if e != Error::from_errno(Errno::EINTR) {
-                    return Err(e.into());
-                }
-            }
-        }
-    }
-
-    Ok(pid_t::from_be_bytes(v))
-}
-
-fn write_sync(fd: RawFd, pid: pid_t) -> Result<()> {
-    let buf = pid.to_be_bytes();
-    let mut len = 0;
-
-    loop {
-        match unistd::write(fd, &buf[len..]) {
-            Ok(l) => {
-                len += l;
-                if len == PIDSIZE {
-                    break;
-                }
-            }
-
-            Err(e) => {
-                if e != Error::from_errno(Errno::EINTR) {
-                    return Err(e.into());
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-
 fn join_namespaces(
     logger: &Logger,
     spec: &Spec,
@@ -849,16 +800,17 @@ fn join_namespaces(
 
     match unistd::fork()? {
         ForkResult::Parent { child } => {
-            // let mut pfile = unsafe { File::from_raw_fd(pfd) };
             defer!(sched::setns(old_pid_ns, CloneFlags::CLONE_NEWPID); unistd::close(old_pid_ns););
             unistd::close(cfd)?;
-            //unistd::close(crfd)?;
 
             let mut pid = child.as_raw();
             info!(logger, "child pid: {}", pid);
 
             //wait child setup user namespace
-            let _ = read_sync(pfd)?; //1 read
+            read_sync(pfd).map_error(|e| {
+                signal::kill(Pid::from_raw(child), Some(Signal::SIGKILL));
+                e
+            })?;
 
             if userns {
                 // setup uid/gid mappings
@@ -892,11 +844,17 @@ fn join_namespaces(
             }
 
             // notify child to continue
-            let _ = read_sync(pfd)?; //1 read
+            read_sync(pfd).map_error(|e| {
+                signal::kill(Pid::from_raw(child), Some(Signal::SIGKILL));
+                e
+            })?;
 
             if init {
                 info!(logger, "notify child parent ready to run prestart hook!");
-                let _ = read_sync(pfd)?; // 3 read
+                read_sync(pfd).map_error(|e| {
+                    signal::kill(Pid::from_raw(child), Some(Signal::SIGKILL));
+                    e
+                })?;
                 info!(logger, "get ready to run prestart hook!");
 
                 // run prestart hook
@@ -910,11 +868,17 @@ fn join_namespaces(
 
                 // notify child run prestart hooks completed
                 info!(logger, "notify child run prestart hook completed!");
-                let _ = read_sync(pfd)?; //1 read
-                                         //write_sync(pwfd, 0)?; // 4 write
+                read_sync(pfd).map_error(|e| {
+                    signal::kill(Pid::from_raw(child), Some(Signal::SIGKILL));
+                    e
+                })?;
+
                 info!(logger, "notify child parent ready to run poststart hook!");
                 // wait to run poststart hook
-                let _ = read_sync(pfd)?; // 5 read
+                read_sync(pfd).map_error(|e| {
+                    signal::kill(Pid::from_raw(child), Some(Signal::SIGKILL));
+                    e
+                })?;
                 info!(logger, "get ready to run poststart hook!");
 
                 //run poststart hook
@@ -933,7 +897,10 @@ fn join_namespaces(
         }
         ForkResult::Child => {
             *parent = 1;
-            unistd::close(pfd)?;
+            unistd::close(pfd).map_error(|e| {
+                write_sync(cfd, MSG_TYPE::ERROR, e.to_str());
+                e
+            })?;
 
             let p = if spec.Process.is_some() {
                 spec.Process.as_ref().unwrap()
@@ -950,20 +917,29 @@ fn join_namespaces(
 
             // set rlimit
             for rl in p.Rlimits.iter() {
-                setrlimit(rl)?;
+                setrlimit(rl).map_error(|e| {
+                    write_sync(cfd, MSG_TYPE::ERROR, e.to_str());
+                    e
+                })?;
             }
 
             if userns {
-                sched::unshare(CloneFlags::CLONE_NEWUSER)?;
+                sched::unshare(CloneFlags::CLONE_NEWUSER).map_error(|e| {
+                    write_sync(cfd, MSG_TYPE::ERROR, e.to_str());
+                    e
+                })?;
             }
 
             // notify parent unshare user ns completed.
-            write_sync(cfd, 0)?; // 1 write
-                                 // wait parent to setup user id mapping.
-            write_sync(cfd, 0)?; // 1 write
+            write_sync(cfd, MSG_TYPE::OK, "")?;
+            // wait parent to setup user id mapping.
+            write_sync(cfd, MSG_TYPE::OK, "")?;
 
             if userns {
-                setid(Uid::from_raw(0), Gid::from_raw(0))?;
+                setid(Uid::from_raw(0), Gid::from_raw(0)).map_error(|e| {
+                    write_sync(cfd, MSG_TYPE::ERROR, e.to_str());
+                    e
+                })?;
             }
         }
     }
@@ -1001,57 +977,93 @@ fn join_namespaces(
                 return Err(e.into());
             }
         }
-        unistd::close(fd)?;
+        unistd::close(fd).map_error(|e| {
+            write_sync(cfd, MSG_TYPE::ERROR, e.to_str());
+            e
+        })?;
 
         if s == CloneFlags::CLONE_NEWUSER {
-            setid(Uid::from_raw(0), Gid::from_raw(0))?;
+            setid(Uid::from_raw(0), Gid::from_raw(0)).map_error(|e| {
+                write_sync(cfd, MSG_TYPE::ERROR, e.to_str());
+                e
+            })?;
             bind_device = true;
         }
     }
 
-    sched::unshare(to_new & !CloneFlags::CLONE_NEWUSER)?;
+    sched::unshare(to_new & !CloneFlags::CLONE_NEWUSER).map_error(|e| {
+        write_sync(cfd, MSG_TYPE::ERROR, e.to_str());
+        e
+    })?;
 
     if userns {
         bind_device = true;
     }
 
     if to_new.contains(CloneFlags::CLONE_NEWUTS) {
-        unistd::sethostname(&spec.Hostname)?;
+        unistd::sethostname(&spec.Hostname).map_error(|e| {
+            write_sync(cfd, MSG_TYPE::ERROR, e.to_str());
+            e
+        })?;
     }
 
     let rootfs = spec.Root.as_ref().unwrap().Path.as_str();
-    let root = fs::canonicalize(rootfs)?;
+    let root = fs::canonicalize(rootfs).map_error(|e| {
+        write_sync(cfd, MSG_TYPE::ERROR, e.to_str());
+        e
+    })?;
     let rootfs = root.to_str().unwrap();
 
     if to_new.contains(CloneFlags::CLONE_NEWNS) {
         // setup rootfs
-        mount::init_rootfs(&spec, &cm.paths, &cm.mounts, bind_device)?;
+        mount::init_rootfs(&spec, &cm.paths, &cm.mounts, bind_device).map_error(|e| {
+            write_sync(cfd, MSG_TYPE::ERROR, e.to_str());
+            e
+        })?;
     }
 
     if init {
         // notify parent to run prestart hooks
-        write_sync(cfd, 0)?; // 3 write
-                             // wait parent run prestart hooks
-        write_sync(cfd, 0)?; // 1 write
+        write_sync(cfd, MSG_TYPE::OK, "")?; // 3 write
+                                            // wait parent run prestart hooks
+        write_sync(cfd, MSG_TYPE::OK, "")?; // 1 write
     }
 
     if mount_fd != -1 {
-        sched::setns(mount_fd, CloneFlags::CLONE_NEWNS)?;
-        unistd::close(mount_fd)?;
+        sched::setns(mount_fd, CloneFlags::CLONE_NEWNS).map_error(|e| {
+            write_sync(cfd, MSG_TYPE::ERROR, e.to_str());
+            e
+        })?;
+        unistd::close(mount_fd).map_error(|e| {
+            write_sync(cfd, MSG_TYPE::ERROR, e.to_str());
+            e
+        })?;
     }
 
     if to_new.contains(CloneFlags::CLONE_NEWNS) {
         // unistd::chroot(rootfs)?;
         if no_pivot {
-            mount::ms_move_root(rootfs)?;
+            mount::ms_move_root(rootfs).map_error(|e| {
+                write_sync(cfd, MSG_TYPE::ERROR, e.to_str());
+                e
+            })?;
         } else {
             // pivot root
-            mount::pivot_rootfs(rootfs)?;
+            mount::pivot_rootfs(rootfs).map_error(|e| {
+                write_sync(cfd, MSG_TYPE::ERROR, e.to_str());
+                e
+            })?;
         }
 
         // setup sysctl
-        set_sysctls(&linux.Sysctl)?;
-        unistd::chdir("/")?;
+        set_sysctls(&linux.Sysctl).map_error(|e| {
+            write_sync(cfd, MSG_TYPE::ERROR, e.to_str());
+            e
+        })?;
+        unistd::chdir("/").map_error(|e| {
+            write_sync(cfd, MSG_TYPE::ERROR, e.to_str());
+            e
+        })?;
     }
 
     Ok((Pid::from_raw(-1), cfd))
@@ -1398,7 +1410,7 @@ fn execute_hook(logger: &Logger, h: &Hook, st: &OCIState) -> Result<()> {
             // let _ = wait::waitpid(_ch,
             //	Some(WaitPidFlag::WEXITED | WaitPidFlag::__WALL));
 
-            if status != 0 {
+            if status != MSG_TYPE::OK {
                 if status == -libc::ETIMEDOUT {
                     return Err(ErrorKind::Nix(Error::from_errno(Errno::ETIMEDOUT)).into());
                 } else if status == -libc::EPIPE {
@@ -1520,7 +1532,7 @@ fn execute_hook(logger: &Logger, h: &Hook, st: &OCIState) -> Result<()> {
             };
 
             handle.join().unwrap();
-            let _ = write_sync(wfd, status);
+            let _ = write_sync(wfd, MSG_TYPE::OK, "");
             // let _ = wait::waitpid(Pid::from_raw(pid),
             //	Some(WaitPidFlag::WEXITED | WaitPidFlag::__WALL));
             std::process::exit(0);
