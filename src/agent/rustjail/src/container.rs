@@ -832,7 +832,6 @@ fn join_namespaces(
     // let ccond = Cond::new().chain_err(|| "create cond failed")?;
     // let pcond = Cond::new().chain_err(|| "create cond failed")?;
     let (pfd, cfd) = unistd::pipe2(OFlag::O_CLOEXEC).chain_err(|| "failed to create pipe")?;
-    let (crfd, pwfd) = unistd::pipe2(OFlag::O_CLOEXEC)?;
 
     let linux = spec.Linux.as_ref().unwrap();
     let res = linux.Resources.as_ref();
@@ -853,7 +852,10 @@ fn join_namespaces(
             // let mut pfile = unsafe { File::from_raw_fd(pfd) };
             defer!(sched::setns(old_pid_ns, CloneFlags::CLONE_NEWPID); unistd::close(old_pid_ns););
             unistd::close(cfd)?;
-            unistd::close(crfd)?;
+            //unistd::close(crfd)?;
+
+            let mut pid = child.as_raw();
+            info!(logger, "child pid: {}", pid);
 
             //wait child setup user namespace
             let _ = read_sync(pfd)?; //1 read
@@ -889,15 +891,8 @@ fn join_namespaces(
                 cm.apply(child.as_raw())?;
             }
 
-            //   write_sync(pwfd, 0)?;   //2 write
-            write_sync(pwfd, 0)?; //2 write
-
-            let mut pid = child.as_raw();
-            info!(logger, "first child! {}", pid);
-            //  info!(logger, "wait for final child!")
-            // read out child pid here. we don't use
-            // cgroup to get it
-            // and the wait for child exit to get grandchild
+            // notify child to continue
+            let _ = read_sync(pfd)?; //1 read
 
             if init {
                 info!(logger, "notify child parent ready to run prestart hook!");
@@ -915,7 +910,8 @@ fn join_namespaces(
 
                 // notify child run prestart hooks completed
                 info!(logger, "notify child run prestart hook completed!");
-                write_sync(pwfd, 0)?; // 4 write
+                let _ = read_sync(pfd)?; //1 read
+                                         //write_sync(pwfd, 0)?; // 4 write
                 info!(logger, "notify child parent ready to run poststart hook!");
                 // wait to run poststart hook
                 let _ = read_sync(pfd)?; // 5 read
@@ -931,7 +927,6 @@ fn join_namespaces(
                 }
             }
             unistd::close(pfd)?;
-            unistd::close(pwfd)?;
 
             info!(logger, "parent return!");
             return Ok((Pid::from_raw(pid), -1));
@@ -939,8 +934,6 @@ fn join_namespaces(
         ForkResult::Child => {
             *parent = 1;
             unistd::close(pfd)?;
-            unistd::close(pwfd)?;
-            // set oom_score_adj
 
             let p = if spec.Process.is_some() {
                 spec.Process.as_ref().unwrap()
@@ -966,7 +959,8 @@ fn join_namespaces(
 
             // notify parent unshare user ns completed.
             write_sync(cfd, 0)?; // 1 write
-            let _ = read_sync(crfd)?; // 2 read
+                                 // wait parent to setup user id mapping.
+            write_sync(cfd, 0)?; // 1 write
 
             if userns {
                 setid(Uid::from_raw(0), Gid::from_raw(0))?;
@@ -1038,7 +1032,7 @@ fn join_namespaces(
         // notify parent to run prestart hooks
         write_sync(cfd, 0)?; // 3 write
                              // wait parent run prestart hooks
-        let _ = read_sync(crfd)?; // 4 read
+        write_sync(cfd, 0)?; // 1 write
     }
 
     if mount_fd != -1 {
