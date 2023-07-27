@@ -21,7 +21,7 @@ use kata_types::{
     capabilities::{Capabilities, CapabilityBits},
     config::{
         hypervisor::{HugePageType, Hypervisor as HypervisorConfig},
-        KATA_PATH,
+        KATA_PATH, PASSFD_LISTENER_PORT,
     },
 };
 use nix::mount::MsFlags;
@@ -68,6 +68,10 @@ pub struct DragonballInner {
 
     /// dragonball capabilities
     pub(crate) capabilities: Capabilities,
+
+    /// guest-side fd passthrough io listener port, used to initialize
+    /// connections for io
+    pub(crate) passfd_listener_port: Option<u32>,
 }
 
 impl DragonballInner {
@@ -91,6 +95,7 @@ impl DragonballInner {
             run_dir: "".to_string(),
             cached_block_devices: Default::default(),
             capabilities,
+            passfd_listener_port: None,
         }
     }
 
@@ -111,6 +116,12 @@ impl DragonballInner {
         kernel_params.append(&mut KernelParams::from_string(
             &self.config.boot_info.kernel_params,
         ));
+        if let Some(passfd_listener_port) = self.passfd_listener_port {
+            kernel_params.append(&mut KernelParams::from_string(&format!(
+                "{}={}",
+                PASSFD_LISTENER_PORT, passfd_listener_port
+            )));
+        }
         info!(sl!(), "prepared kernel_params={:?}", kernel_params);
 
         // set boot source
@@ -345,6 +356,10 @@ impl DragonballInner {
     pub fn hypervisor_config(&self) -> HypervisorConfig {
         self.config.clone()
     }
+
+    pub fn set_passfd_listener_port(&mut self, port: u32) {
+        self.passfd_listener_port = Some(port);
+    }
 }
 
 #[async_trait]
@@ -364,6 +379,7 @@ impl Persist for DragonballInner {
             config: self.hypervisor_config(),
             run_dir: self.run_dir.clone(),
             cached_block_devices: self.cached_block_devices.clone(),
+            passfd_listener_port: self.passfd_listener_port,
             ..Default::default()
         })
     }
@@ -386,6 +402,7 @@ impl Persist for DragonballInner {
             pending_devices: vec![],
             cached_block_devices: hypervisor_state.cached_block_devices,
             capabilities: Capabilities::new(),
+            passfd_listener_port: hypervisor_state.passfd_listener_port,
         })
     }
 }
