@@ -102,4 +102,5 @@ pub trait Hypervisor: std::fmt::Debug + Send + Sync {
     async fn save_state(&self) -> Result<HypervisorState>;
     async fn capabilities(&self) -> Result<Capabilities>;
     async fn get_hypervisor_metrics(&self) -> Result<String>;
+    async fn get_passfd_listener_addr(&self) -> Result<(String, u32)>;
 }

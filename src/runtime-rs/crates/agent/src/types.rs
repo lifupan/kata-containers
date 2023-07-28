@@ -118,6 +118,9 @@ pub struct CreateContainerRequest {
     pub oci: Option<oci::Spec>,
     pub sandbox_pidns: bool,
     pub rootfs_mounts: Vec<oci::Mount>,
+    pub stdin_port: Option<u32>,
+    pub stdout_port: Option<u32>,
+    pub stderr_port: Option<u32>,
 }
 
 #[derive(PartialEq, Clone, Default)]
@@ -242,6 +245,9 @@ pub struct ExecProcessRequest {
     pub process_id: ContainerProcessID,
     pub string_user: Option<StringUser>,
     pub process: Option<oci::Process>,
+    pub stdin_port: Option<u32>,
+    pub stdout_port: Option<u32>,
+    pub stderr_port: Option<u32>,
 }
 
 #[derive(PartialEq, Clone, Default, Debug)]

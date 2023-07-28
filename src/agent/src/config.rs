@@ -64,6 +64,52 @@ pub struct AgentEndpoints {
     pub all_allowed: bool,
 }
 
+impl AgentEndpoints {
+    fn disable(&mut self, endpoint: &str) -> Result<()> {
+        if self.all_allowed {
+            self.all_allowed = false;
+
+            // pull from samples/configuration-all-endpoints.toml
+            self.allowed.insert("AddARPNeighborsRequest".to_string());
+            self.allowed.insert("AddSwapRequest".to_string());
+            self.allowed.insert("CloseStdinRequest".to_string());
+            self.allowed.insert("CopyFileRequest".to_string());
+            self.allowed.insert("CreateContainerRequest".to_string());
+            self.allowed.insert("CreateSandboxRequest".to_string());
+            self.allowed.insert("DestroySandboxRequest".to_string());
+            self.allowed.insert("ExecProcessRequest".to_string());
+            self.allowed.insert("GetMetricsRequest".to_string());
+            self.allowed.insert("GetOOMEventRequest".to_string());
+            self.allowed.insert("GuestDetailsRequest".to_string());
+            self.allowed.insert("ListInterfacesRequest".to_string());
+            self.allowed.insert("ListRoutesRequest".to_string());
+            self.allowed.insert("MemHotplugByProbeRequest".to_string());
+            self.allowed.insert("OnlineCPUMemRequest".to_string());
+            self.allowed.insert("PauseContainerRequest".to_string());
+            self.allowed.insert("PullImageRequest".to_string());
+            self.allowed.insert("ReadStreamRequest".to_string());
+            self.allowed.insert("RemoveContainerRequest".to_string());
+            self.allowed.insert("ReseedRandomDevRequest".to_string());
+            self.allowed.insert("ResizeVolumeRequest".to_string());
+            self.allowed.insert("ResumeContainerRequest".to_string());
+            self.allowed.insert("SetGuestDateTimeRequest".to_string());
+            self.allowed.insert("SignalProcessRequest".to_string());
+            self.allowed.insert("StartContainerRequest".to_string());
+            self.allowed.insert("StatsContainerRequest".to_string());
+            self.allowed.insert("TtyWinResizeRequest".to_string());
+            self.allowed.insert("UpdateContainerRequest".to_string());
+            self.allowed.insert("UpdateInterfaceRequest".to_string());
+            self.allowed.insert("UpdateRoutesRequest".to_string());
+            self.allowed.insert("VolumeStatsRequest".to_string());
+            self.allowed.insert("WaitProcessRequest".to_string());
+            self.allowed.insert("WriteStreamRequest".to_string());
+        }
+
+        self.allowed.remove(endpoint);
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 pub struct AgentConfig {
     pub debug_console: bool,
@@ -312,6 +358,12 @@ impl AgentConfig {
 
         // We did not get a configuration file: allow all endpoints.
         config.endpoints.all_allowed = true;
+
+        if config.passfd_listener_port > 0 {
+            config.endpoints.disable("ReadStreamRequest")?;
+            config.endpoints.disable("WriteStreamRequest")?;
+            config.endpoints.disable("CloseStdinRequest")?;
+        }
 
         Ok(config)
     }

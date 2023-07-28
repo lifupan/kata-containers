@@ -170,6 +170,11 @@ impl Hypervisor for Dragonball {
         let inner = self.inner.read().await;
         inner.get_hypervisor_metrics().await
     }
+
+    async fn get_passfd_listener_addr(&self) -> Result<(String, u32)> {
+        let inner = self.inner.read().await;
+        inner.get_passfd_listener_addr().await
+    }
 }
 
 #[async_trait]

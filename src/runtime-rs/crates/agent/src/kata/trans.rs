@@ -260,6 +260,9 @@ impl From<CreateContainerRequest> for agent::CreateContainerRequest {
             storages: trans_vec(from.storages),
             OCI: from_option(from.oci),
             sandbox_pidns: from.sandbox_pidns,
+            stdin_port: from.stdin_port.unwrap_or_default(),
+            stdout_port: from.stdout_port.unwrap_or_default(),
+            stderr_port: from.stderr_port.unwrap_or_default(),
             ..Default::default()
         }
     }
@@ -401,6 +404,9 @@ impl From<ExecProcessRequest> for agent::ExecProcessRequest {
             exec_id: from.process_id.exec_id(),
             string_user: from_option(from.string_user),
             process: from_option(from.process),
+            stdin_port: from.stdin_port.unwrap_or_default(),
+            stdout_port: from.stdout_port.unwrap_or_default(),
+            stderr_port: from.stderr_port.unwrap_or_default(),
             ..Default::default()
         }
     }

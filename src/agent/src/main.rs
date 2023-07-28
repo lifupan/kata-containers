@@ -52,6 +52,7 @@ mod storage;
 mod uevent;
 mod util;
 mod version;
+mod passfd_io;
 mod watcher;
 
 use mount::{cgroups_mount, general_mount};
@@ -234,6 +235,12 @@ async fn real_main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     //
     // XXX: Note that *ALL* spans needs to start after this point!!
     let span_guard = root_span.enter();
+
+    // Start the fd passthrough io listener
+    let passfd_listener_port = config.passfd_listener_port as u32;
+    if passfd_listener_port != 0 {
+        passfd_io::start_listen(passfd_listener_port).await?;
+    }
 
     // Start the sandbox and wait for its ttRPC server to end
     start_sandbox(&logger, config, init_mode, &mut tasks, shutdown_rx.clone()).await?;

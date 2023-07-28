@@ -157,6 +157,10 @@ impl Hypervisor for CloudHypervisor {
         let inner = self.inner.read().await;
         inner.get_hypervisor_metrics().await
     }
+
+    async fn get_passfd_listener_addr(&self) -> Result<(String, u32)> {
+        Err(anyhow::anyhow!("Not yet supported"))
+    }
 }
 
 #[async_trait]
