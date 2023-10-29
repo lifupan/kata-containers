@@ -880,7 +880,7 @@ impl agent_ttrpc::AgentService for AgentService {
                 )
             })?;
 
-        p.close_stdin();
+        p.close_stdin().await;
 
         Ok(Empty::new())
     }

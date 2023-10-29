@@ -362,7 +362,6 @@ impl AgentConfig {
         if config.passfd_listener_port > 0 {
             config.endpoints.disable("ReadStreamRequest")?;
             config.endpoints.disable("WriteStreamRequest")?;
-            config.endpoints.disable("CloseStdinRequest")?;
         }
 
         Ok(config)
