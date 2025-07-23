@@ -705,12 +705,13 @@ impl VfioDeviceMgr {
         res_manager: Arc<ResourceManager>,
     ) -> Result<&mut Arc<PciSystemManager>> {
         if self.pci_vfio_manager.is_none() {
-            let mut mgr = PciSystemManager::new(irq_manager, io_context, res_manager.clone())?;
+            //////////to be done for fupan
+            let mut mgr = PciSystemManager::new(irq_manager, io_context, res_manager.clone()).unwrap();
             let requirements = mgr.resource_requirements();
             let resources = res_manager
                 .allocate_device_resources(&requirements, USE_SHARED_IRQ)
                 .or(Err(VfioDeviceError::NoResource))?;
-            mgr.activate(resources)?;
+            mgr.activate(resources).unwrap();
             self.pci_vfio_manager = Some(Arc::new(mgr));
         }
         Ok(self.pci_vfio_manager.as_mut().unwrap())
