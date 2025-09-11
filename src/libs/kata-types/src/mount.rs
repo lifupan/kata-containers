@@ -476,9 +476,9 @@ pub fn join_path(prefix: &str, volume_path: &str) -> Result<PathBuf> {
     if volume_path.is_empty() {
         return Err(anyhow!(std::io::ErrorKind::NotFound));
     }
-    let b64_url_encoded_path = base64::encode_config(volume_path.as_bytes(), base64::URL_SAFE);
+//    let b64_url_encoded_path = base64::encode_config(volume_path.as_bytes(), base64::URL_SAFE);
 
-    Ok(safe_path::scoped_join(prefix, b64_url_encoded_path)?)
+    Ok(safe_path::scoped_join(prefix, volume_path)?)
 }
 
 /// Gets `DirectVolumeMountInfo` from `mountinfo.json`.

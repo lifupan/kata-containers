@@ -98,6 +98,7 @@ pub(crate) async fn handle_direct_volume(
 }
 
 pub(crate) fn is_direct_volume(m: &oci::Mount) -> Result<bool> {
+     
     let mnt_type = get_mount_type(m);
     let mount_type = mnt_type.as_str();
 
@@ -110,8 +111,9 @@ pub(crate) fn is_direct_volume(m: &oci::Mount) -> Result<bool> {
         KATA_SPOOL_VOLUME_TYPE,
     ];
     if !vol_types.contains(&mount_type) {
-        return Ok(false);
+        //return Ok(false);
     }
+    
 
     match get_direct_volume_path(get_mount_path(m.source()).as_str()) {
         Ok(directvol_path) => {
