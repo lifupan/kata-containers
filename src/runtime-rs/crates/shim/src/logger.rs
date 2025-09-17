@@ -4,22 +4,31 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+use std::os::unix::fs::OpenOptionsExt;
+
 use anyhow::{Context, Result};
 
-pub(crate) fn set_logger(_path: &str, sid: &str, is_debug: bool) -> Result<slog_async::AsyncGuard> {
+use crate::Error;
+
+pub(crate) fn set_logger(path: &str, sid: &str, is_debug: bool) -> Result<slog_async::AsyncGuard> {
+    //it's better to open the log pipe file with read & write option,
+    //otherwise, once the containerd reboot and closed the read endpoint,
+    //kata shim would write the log pipe with broken pipe error.
+    let fifo = std::fs::OpenOptions::new()
+        .custom_flags(libc::O_NONBLOCK)
+        .create(true)
+        .read(true)
+        .write(true)
+        .open(path)
+        .context(Error::FileOpen(path.to_string()))?;
+
     let level = if is_debug {
         slog::Level::Debug
     } else {
         slog::Level::Info
     };
 
-    // Use journal logger to send logs to systemd journal with "kata" identifier
-    let (logger, async_guard) = logging::create_logger_with_destination(
-        "kata-runtime",
-        sid,
-        level,
-        logging::LogDestination::Journal,
-    );
+    let (logger, async_guard) = logging::create_logger("kata-runtime", sid, level, fifo);
 
     // not reset global logger when drop
     slog_scope::set_global_logger(logger).cancel_reset();
