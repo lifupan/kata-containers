@@ -1,0 +1,21 @@
+[package]
+name = "dbs-snapshot"
+version = "0.1.0"
+authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
+edition = "2018"
+autobenches = false
+license = "Apache-2.0"
+
+[dependencies]
+serde = { version = "1.0.219", features = ["derive", "rc"] }
+# serde = ">=1.0.27"
+# serde_derive = ">=1.0.27"
+libc = ">=0.2.39"
+vmm-sys-util = { workspace = true }
+crc64 = "2.0.0"
+thiserror = "1"
+displaydoc = "0.2.5"
+semver = { workspace = true } 
+bincode = { version = "2.0.1", features = ["serde"] }
+
+

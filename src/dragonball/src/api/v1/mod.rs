@@ -18,6 +18,9 @@ pub use self::instance_info::{InstanceInfo, InstanceState};
 mod machine_config;
 pub use self::machine_config::{VmConfigError, MAX_SUPPORTED_VCPUS};
 
+mod snapshot;
+pub use self::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
+
 /// Wrapper for configuring the virtio networking
 #[cfg(any(
     feature = "virtio-net",

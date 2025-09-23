@@ -38,6 +38,10 @@ pub mod tracer;
 pub mod vcpu;
 /// Virtual machine manager for virtual machines.
 pub mod vm;
+/// Save/restore utilities.
+pub mod persist;
+
+mod memory_snapshot;
 
 mod event_manager;
 mod io_manager;

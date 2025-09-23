@@ -763,6 +763,24 @@ impl Vm {
         info!(self.logger, "VM started");
         Ok(())
     }
+
+    /// Returns a reference to the inner `GuestMemoryMmap` object if present, or `None` otherwise.
+    // pub(crate) fn guest_memory(&self) -> Option<GuestAddressSpaceImpl> {
+    //     self.vm_as().map(|m| m.clone())
+    // }
+    /// Retrieves the KVM dirty bitmap for each of the guest's memory region.
+    pub fn get_dirty_bitmap(&self) -> Result<DirtyBitmap> {
+        let mut bitmap: DirtyBitmap = HashMap::new();
+        let mem = self.vm_as().unwrap().memory();
+        for (slot, region) in mem.iter().enumerate() {
+            let bitmap_region = self
+                .fd
+                .get_dirty_log(slot as u32, region.len() as usize)
+                .map_err(Error::Kvm)?;
+            bitmap.insert(slot, bitmap_region);
+        }
+        Ok(bitmap)
+    }
 }
 
 #[cfg(feature = "hotplug")]
