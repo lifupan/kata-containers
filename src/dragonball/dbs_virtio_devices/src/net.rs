@@ -714,6 +714,7 @@ impl<AS: GuestAddressSpace> Net<AS> {
     /// Restore net device state from a snapshot.
     pub fn restore_state(&mut self, state: &NetState) {
         self.device_info.restore_state(&state.device_info);
+        self.id = state.id.clone();
     }
 }
 

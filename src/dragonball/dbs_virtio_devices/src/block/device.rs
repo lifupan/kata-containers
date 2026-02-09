@@ -217,6 +217,9 @@ impl<AS: DbsGuestAddressSpace> Block<AS> {
     }
 
     /// Restore block device state from a snapshot.
+    ///
+    /// Note: `num_queues` is not restored here as it is determined by the
+    /// number of disk images provided during device construction.
     pub fn restore_state(&mut self, state: &BlockState) {
         self.device_info.restore_state(&state.device_info);
     }
