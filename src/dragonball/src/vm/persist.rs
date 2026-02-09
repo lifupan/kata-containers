@@ -12,6 +12,13 @@ use crate::memory_snapshot::GuestMemoryState;
 use crate::memory_snapshot::SnapshotMemory;
 use crate::vm::Vm;
 
+#[cfg(feature = "virtio-blk")]
+use dbs_virtio_devices::block::BlockState;
+#[cfg(feature = "virtio-net")]
+use dbs_virtio_devices::net::NetState;
+#[cfg(feature = "virtio-vsock")]
+use dbs_virtio_devices::vsock::VsockState;
+
 /// Serializable VM configuration state for snapshot persistence.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct VmConfigState {
@@ -31,6 +38,23 @@ pub struct VmConfigState {
     pub serial_path: Option<String>,
 }
 
+/// Serializable device states for snapshot persistence.
+///
+/// This aggregates the state of all virtio devices that have been configured
+/// in the VM. Each device type is feature-gated.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct DeviceStates {
+    /// States of all virtio-block devices.
+    #[cfg(feature = "virtio-blk")]
+    pub block_devices: Vec<BlockState>,
+    /// States of all virtio-vsock devices.
+    #[cfg(feature = "virtio-vsock")]
+    pub vsock_devices: Vec<VsockState>,
+    /// States of all virtio-net devices.
+    #[cfg(feature = "virtio-net")]
+    pub net_devices: Vec<NetState>,
+}
+
 /// The complete VM state used for snapshot persistence.
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct VmState {
@@ -38,6 +62,8 @@ pub struct VmState {
     pub config: VmConfigState,
     /// Guest memory layout state.
     pub memory_state: GuestMemoryState,
+    /// Device states.
+    pub device_states: DeviceStates,
 }
 
 /// Errors associated with saving the VM state.
@@ -85,6 +111,7 @@ impl Vm {
         Ok(VmState {
             config,
             memory_state,
+            device_states: DeviceStates::default(),
         })
     }
 

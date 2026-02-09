@@ -26,13 +26,24 @@ use vmm_sys_util::eventfd::{EventFd, EFD_NONBLOCK};
 
 use crate::{
     ActivateError, ActivateResult, ConfigResult, DbsGuestAddressSpace, Error, Result, VirtioDevice,
-    VirtioDeviceConfig, VirtioDeviceInfo, TYPE_BLOCK,
+    VirtioDeviceConfig, VirtioDeviceInfo, VirtioDeviceState, TYPE_BLOCK,
 };
 
 use super::{
     BlockEpollHandler, InnerBlockEpollHandler, KillEvent, Ufile, BLK_DRIVER_NAME, SECTOR_SHIFT,
     SECTOR_SIZE,
 };
+
+use serde::{Deserialize, Serialize};
+
+/// Serializable state of the virtio-block device for snapshot persistence.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct BlockState {
+    /// Common virtio device state (features, config space, etc.).
+    pub device_info: VirtioDeviceState,
+    /// Number of queues.
+    pub num_queues: usize,
+}
 
 /// Supported fields in the configuration space:
 /// - 64-bit disk size
@@ -195,6 +206,19 @@ impl<AS: DbsGuestAddressSpace> Block<AS> {
         }
 
         Ok(())
+    }
+
+    /// Save the current state of the block device for snapshot.
+    pub fn save_state(&self) -> BlockState {
+        BlockState {
+            device_info: self.device_info.save_state(),
+            num_queues: self.queue_sizes.len(),
+        }
+    }
+
+    /// Restore block device state from a snapshot.
+    pub fn restore_state(&mut self, state: &BlockState) {
+        self.device_info.restore_state(&state.device_info);
     }
 }
 
@@ -1364,5 +1388,25 @@ mod tests {
         .unwrap();
         handler.pending_req_map.insert(0, req);
         handler.io_complete().unwrap();
+    }
+
+    #[test]
+    fn test_block_state_serialization() {
+        use crate::VirtioDeviceState;
+
+        let state = BlockState {
+            device_info: VirtioDeviceState {
+                driver_name: "virtio-blk".to_string(),
+                avail_features: 0x1234,
+                acked_features: 0x1000,
+                queue_sizes: vec![256],
+                config_space: vec![0; 64],
+            },
+            num_queues: 1,
+        };
+
+        let serialized = serde_json::to_string(&state).unwrap();
+        let deserialized: BlockState = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(state, deserialized);
     }
 }

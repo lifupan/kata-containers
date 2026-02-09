@@ -24,8 +24,19 @@ use super::defs::uapi;
 use super::epoll_handler::VsockEpollHandler;
 use super::muxer::{Error as MuxerError, VsockGenericMuxer, VsockMuxer};
 use super::{Result, VsockError};
-use crate::device::{VirtioDeviceConfig, VirtioDeviceInfo};
+use crate::device::{VirtioDeviceConfig, VirtioDeviceInfo, VirtioDeviceState};
 use crate::{ActivateResult, ConfigResult, DbsGuestAddressSpace, VirtioDevice};
+
+use serde::{Deserialize, Serialize};
+
+/// Serializable state of the virtio-vsock device for snapshot persistence.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct VsockState {
+    /// Common virtio device state (features, config space, etc.).
+    pub device_info: VirtioDeviceState,
+    /// The Context Identifier (CID) assigned to this vsock device.
+    pub cid: u64,
+}
 
 const VSOCK_DRIVER_NAME: &str = "virtio-vsock";
 const VSOCK_CONFIG_SPACE_SIZE: usize = 8;
@@ -109,6 +120,20 @@ impl<AS: GuestAddressSpace, M: VsockGenericMuxer> Vsock<AS, M> {
         } else {
             Err(VsockError::Muxer(MuxerError::BackendAddAfterActivated))
         }
+    }
+
+    /// Save the current state of the vsock device for snapshot.
+    pub fn save_state(&self) -> VsockState {
+        VsockState {
+            device_info: self.device_info.save_state(),
+            cid: self.cid,
+        }
+    }
+
+    /// Restore vsock device state from a snapshot.
+    pub fn restore_state(&mut self, state: &VsockState) {
+        self.device_info.restore_state(&state.device_info);
+        self.cid = state.cid;
     }
 }
 
@@ -368,5 +393,49 @@ mod tests {
 
         // Test activation.
         ctx.device.activate(config).unwrap();
+    }
+
+    #[test]
+    fn test_vsock_state_serialization() {
+        use crate::VirtioDeviceState;
+
+        let state = VsockState {
+            device_info: VirtioDeviceState {
+                driver_name: "virtio-vsock".to_string(),
+                avail_features: 0xABCD,
+                acked_features: 0xAB00,
+                queue_sizes: vec![256, 256, 256],
+                config_space: vec![52, 0, 0, 0, 0, 0, 0, 0],
+            },
+            cid: 52,
+        };
+
+        let serialized = serde_json::to_string(&state).unwrap();
+        let deserialized: VsockState = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(state, deserialized);
+    }
+
+    #[test]
+    fn test_vsock_save_restore_state() {
+        let ctx = TestContext::new();
+        let state = ctx.device.save_state();
+
+        assert_eq!(state.cid, 52);
+        assert_eq!(state.device_info.driver_name, "virtio-vsock");
+        assert_eq!(state.device_info.avail_features, VSOCK_AVAIL_FEATURES);
+        assert_eq!(state.device_info.queue_sizes.len(), 3);
+
+        // Create a new device and restore state
+        let epoll_mgr = EpollManager::default();
+        let mut device2 = Vsock::<Arc<GuestMemoryMmap>, super::super::tests::TestMuxer>::new_with_muxer(
+            99,  // different CID
+            Arc::new(super::super::defs::QUEUE_SIZES.to_vec()),
+            epoll_mgr,
+            super::super::tests::TestMuxer::new(),
+        )
+        .unwrap();
+
+        device2.restore_state(&state);
+        assert_eq!(device2.cid, 52);
     }
 }
