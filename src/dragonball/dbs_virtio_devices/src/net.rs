@@ -27,12 +27,23 @@ use virtio_queue::{QueueOwnedT, QueueSync, QueueT};
 use vm_memory::{Bytes, GuestAddress, GuestAddressSpace, GuestMemoryRegion, GuestRegionMmap};
 use vmm_sys_util::eventfd::EventFd;
 
-use crate::device::{VirtioDeviceConfig, VirtioDeviceInfo};
+use crate::device::{VirtioDeviceConfig, VirtioDeviceInfo, VirtioDeviceState};
 use crate::{
     setup_config_space, vnet_hdr_len, ActivateError, ActivateResult, ConfigResult,
     DbsGuestAddressSpace, Error, NetDeviceMetrics, Result, TapError, VirtioDevice,
     VirtioQueueConfig, DEFAULT_MTU, TYPE_NET,
 };
+
+use serde::{Deserialize, Serialize};
+
+/// Serializable state of the virtio-net device for snapshot persistence.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct NetState {
+    /// Common virtio device state (features, config space, etc.).
+    pub device_info: VirtioDeviceState,
+    /// Device ID/name.
+    pub id: String,
+}
 
 const NET_DRIVER_NAME: &str = "virtio-net";
 
@@ -690,6 +701,20 @@ impl<AS: GuestAddressSpace> Net<AS> {
 
     pub fn metrics(&self) -> Arc<NetDeviceMetrics> {
         self.metrics.clone()
+    }
+
+    /// Save the current state of the net device for snapshot.
+    pub fn save_state(&self) -> NetState {
+        NetState {
+            device_info: self.device_info.save_state(),
+            id: self.id.clone(),
+        }
+    }
+
+    /// Restore net device state from a snapshot.
+    pub fn restore_state(&mut self, state: &NetState) {
+        self.device_info.restore_state(&state.device_info);
+        self.id = state.id.clone();
     }
 }
 
@@ -1399,5 +1424,25 @@ mod tests {
             handler.process(events, &mut event_op);
             assert!(!handler.rx.rate_limiter.is_blocked());
         }
+    }
+
+    #[test]
+    fn test_net_state_serialization() {
+        use crate::VirtioDeviceState;
+
+        let state = NetState {
+            device_info: VirtioDeviceState {
+                driver_name: "virtio-net".to_string(),
+                avail_features: 0xFFFF,
+                acked_features: 0xFF00,
+                queue_sizes: vec![256, 256],
+                config_space: vec![0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0, 0, 0, 0, 0, 0],
+            },
+            id: "virtio-net".to_string(),
+        };
+
+        let serialized = serde_json::to_string(&state).unwrap();
+        let deserialized: NetState = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(state, deserialized);
     }
 }

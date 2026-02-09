@@ -34,6 +34,26 @@ use vmm_sys_util::eventfd::{EventFd, EFD_NONBLOCK};
 
 use crate::{ActivateError, ActivateResult, ConfigError, ConfigResult, Error, Result};
 
+use serde::{Deserialize, Serialize};
+
+/// Serializable state of a virtio device's common information.
+///
+/// This captures the essential configuration and feature negotiation state
+/// that needs to be preserved across snapshots.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct VirtioDeviceState {
+    /// Name of the virtio backend device.
+    pub driver_name: String,
+    /// Available features of the virtio backend device.
+    pub avail_features: u64,
+    /// Acknowledged features negotiated with the guest driver.
+    pub acked_features: u64,
+    /// Array of queue sizes.
+    pub queue_sizes: Vec<u16>,
+    /// Device-specific configuration space data.
+    pub config_space: Vec<u8>,
+}
+
 /// Virtio queue configuration information.
 ///
 /// The `VirtioQueueConfig` maintains configuration information for a Virtio queue.
@@ -570,6 +590,23 @@ impl VirtioDeviceInfo {
             ))
         })
     }
+
+    /// Save the current state of the device info for snapshot.
+    pub fn save_state(&self) -> VirtioDeviceState {
+        VirtioDeviceState {
+            driver_name: self.driver_name.clone(),
+            avail_features: self.avail_features,
+            acked_features: self.acked_features,
+            queue_sizes: (*self.queue_sizes).clone(),
+            config_space: self.config_space.clone(),
+        }
+    }
+
+    /// Restore device info state from a snapshot.
+    pub fn restore_state(&mut self, state: &VirtioDeviceState) {
+        self.acked_features = state.acked_features;
+        self.config_space = state.config_space.clone();
+    }
 }
 
 #[cfg(test)]
@@ -904,5 +941,57 @@ pub(crate) mod tests {
             Arc::new(NoopNotifier::new()),
         );
         device.activate(device_config).unwrap();
+    }
+
+    #[test]
+    fn test_virtio_device_state_serialization() {
+        let state = VirtioDeviceState {
+            driver_name: "test-device".to_string(),
+            avail_features: 0x1234_5678_9ABC_DEF0,
+            acked_features: 0x1234_0000_0000_0000,
+            queue_sizes: vec![256, 256],
+            config_space: vec![0x01, 0x02, 0x03, 0x04],
+        };
+
+        // Test serde roundtrip
+        let serialized = serde_json::to_string(&state).unwrap();
+        let deserialized: VirtioDeviceState = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(state, deserialized);
+    }
+
+    #[test]
+    fn test_virtio_device_info_save_restore() {
+        let epoll_mgr = EpollManager::default();
+        let queue_sizes = Arc::new(vec![256u16, 256]);
+        let config_space = vec![0x01, 0x02, 0x03, 0x04];
+        let mut info = VirtioDeviceInfo::new(
+            "test-device".to_string(),
+            0x1234_5678_9ABC_DEF0,
+            queue_sizes,
+            config_space,
+            epoll_mgr,
+        );
+        // Simulate feature negotiation
+        info.set_acked_features(0, 0x9ABC_DEF0);
+
+        let state = info.save_state();
+        assert_eq!(state.driver_name, "test-device");
+        assert_eq!(state.avail_features, 0x1234_5678_9ABC_DEF0);
+        assert_eq!(state.acked_features, 0x9ABC_DEF0);
+        assert_eq!(state.queue_sizes, vec![256, 256]);
+        assert_eq!(state.config_space, vec![0x01, 0x02, 0x03, 0x04]);
+
+        // Create a new info and restore
+        let epoll_mgr2 = EpollManager::default();
+        let mut info2 = VirtioDeviceInfo::new(
+            "test-device".to_string(),
+            0x1234_5678_9ABC_DEF0,
+            Arc::new(vec![256u16, 256]),
+            vec![0x00; 4],
+            epoll_mgr2,
+        );
+        info2.restore_state(&state);
+        assert_eq!(info2.acked_features, 0x9ABC_DEF0);
+        assert_eq!(info2.config_space, vec![0x01, 0x02, 0x03, 0x04]);
     }
 }
