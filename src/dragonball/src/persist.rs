@@ -13,16 +13,14 @@ use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::result::Result;
 use std::slice;
-use log::info;
 
 use dbs_address_space::{AddressSpace, AddressSpaceRegionType};
-//use fail::fail_point;
 use dbs_snapshot::Snapshot;
-use vm_memory::GuestAddressSpace;
 use dbs_snapshot::SnapshotError;
+use log::info;
+use vm_memory::GuestAddressSpace;
 
 use crate::api::v1::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
-//use crate::device_manager::DeviceLiveUpgradeError;
 use crate::memory_snapshot::{self, SnapshotMemory};
 use crate::vcpu::VcpuManagerError;
 use crate::vm::persist::{RestoreVmStateError, SaveVmStateError, VmState};
@@ -70,11 +68,6 @@ pub enum CreateSnapshotError {
     /// Invalid Vm Id
     #[error("Invalid Vm Id")]
     InvalidVmId,
-    /* 
-    /// Device suspend failed
-    #[error("Device suspend failed, {0}")]
-    DeviceSuspendFailed(#[source] DeviceLiveUpgradeError),
-    */
 
     /// Vcpu related error Error
     #[error("Vcpu related error Error, {0}")]
@@ -113,7 +106,7 @@ pub enum CreateSnapshotError {
 pub enum LoadSnapshotError {
     /// Failed to deserialize microVM state.
     #[error("Cannot deserialize MicrovmState, {0}")]
-    DeserializeMicrovmState(#[source] snapshot::Error),
+    DeserializeMicrovmState(#[source] SnapshotError),
     /// Failed to open memory backing file.
     #[error("Cannot open memory file, {0}")]
     MemoryBackingFile(#[source] io::Error),
@@ -173,7 +166,7 @@ fn snapshot_memory_to_file(
 ) -> Result<(), CreateSnapshotError> {
     // it's safe to unwrap since it doesn't make sense to snapshot a microVM
     // that has not been started.
-    let mem_size_byte = mem_size_byte(vm.vm_address_space().as_ref().unwrap());
+    let mem_size_byte = mem_size_byte(vm.vm_address_space().unwrap());
 
     let file_path = Path::new(mem_file_path);
     if file_path.exists() {
@@ -225,7 +218,7 @@ fn snapshot_memory_to_file(
             vm.vm_as()
                 .unwrap()
                 .memory()
-                .dump(&mut cursor, vm.address_space.address_space.as_ref())
+                .dump(&mut cursor, vm.vm_address_space())
                 .map_err(CreateSnapshotError::Memory)
         }
     }
@@ -246,7 +239,6 @@ fn snapshot_state_to_file(
     microvm_state: &VmState,
     snapshot_path: &Path,
     _version: &Option<String>,
-    version_map: VersionMap,
     debug_path: Option<String>,
 ) -> Result<(), CreateSnapshotError> {
     let mut snapshot_file = std::io::BufWriter::new(
@@ -258,13 +250,7 @@ fn snapshot_state_to_file(
             .map_err(CreateSnapshotError::SnapshotBackingFile)?,
     );
 
-    snapshot_state_to_buff(
-        microvm_state,
-        &mut snapshot_file,
-        _version,
-        version_map,
-        debug_path,
-    )?;
+    snapshot_state_to_buff(microvm_state, &mut snapshot_file, _version, debug_path)?;
     Ok(())
 }
 
@@ -272,7 +258,6 @@ fn snapshot_state_to_buff(
     microvm_state: &VmState,
     writer: &mut impl io::Write,
     _version: &Option<String>,
-    version_map: VersionMap,
     debug_path: Option<String>,
 ) -> Result<(), CreateSnapshotError> {
     if let Some(suffix) = debug_path {
@@ -283,51 +268,29 @@ fn snapshot_state_to_buff(
             .map_err(CreateSnapshotError::Debug)?;
     }
 
-    // Translate the microVM version to its corresponding snapshot data format.
-    // let snapshot_data_version = match version {
-    //     Some(version) => match DRAGONBALL_VERSION_TO_SNAP_VERSION.get(version) {
-    //         Some(data_version) => Ok(*data_version),
-    //         _ => Err(InvalidVersion),
-    //     },
-    //     _ => Ok(version_map.latest_version()),
-    // }?;
-    let snapshot_data_version = version_map.latest_version();
-
     use self::CreateSnapshotError::SerializeMicrovmState;
-    let mut snapshot = Snapshot::new(version_map, snapshot_data_version);
-    snapshot
-        .save(writer, microvm_state)
-        .map_err(SerializeMicrovmState)?;
+    let snapshot = Snapshot::new(microvm_state);
+    snapshot.save(writer).map_err(SerializeMicrovmState)?;
 
     Ok(())
 }
 
 pub fn snapshot_state_from_file(
     snapshot_path: &Path,
-    version_manager: &VersionManager,
 ) -> Result<VmState, LoadSnapshotError> {
     let mut snapshot_reader = std::io::BufReader::new(
         File::open(snapshot_path).map_err(LoadSnapshotError::SnapshotBackingFile)?,
     );
-    let vm_state = Snapshot::unchecked_load(&mut snapshot_reader, version_manager)
+    let snapshot: Snapshot<VmState> = Snapshot::load(&mut snapshot_reader)
         .map_err(LoadSnapshotError::DeserializeMicrovmState)?;
 
-    // for debugging snapshot:
-    // use std::io::prelude::*;
-    // let str_vm_state = format!("{:#?}", vm_state);
-    // let mut file =
-    //     File::create("/tmp/vmstate-restore.txt")
-    //         .unwrap();
-    // file.write_all(str_vm_state.as_bytes()).unwrap();
-
-    Ok(vm_state)
+    Ok(snapshot.data)
 }
 
 /// Creates a Microvm snapshot.
 pub fn create_vm_snapshot(
     vm: &Vm,
     params: &CreateSnapshotParams,
-    version_map: VersionMap,
 ) -> Result<(), CreateSnapshotError> {
     snapshot_memory_to_file(vm, &params.mem_file_path, &params.snapshot_type)?;
     info!("[snapshot] memory file created");
@@ -340,13 +303,7 @@ pub fn create_vm_snapshot(
         debug_path = Some(format!("snapshot-{}", instance_id));
     }
 
-    snapshot_state_to_file(
-        &vm_state,
-        &params.snapshot_path,
-        &params.version,
-        version_map,
-        debug_path,
-    )?;
+    snapshot_state_to_file(&vm_state, &params.snapshot_path, &params.version, debug_path)?;
 
     info!("[snapshot] state file created");
     Ok(())
@@ -355,12 +312,11 @@ pub fn create_vm_snapshot(
 /// Loads a Microvm snapshot producing a 'paused' Microvm.
 pub fn load_vm_snapshot(
     params: &LoadSnapshotParams,
-    version_manager: &VersionManager,
 ) -> Result<(VmState, File, bool, bool), LoadSnapshotError> {
     let track_dirty = params.enable_diff_snapshots;
     let is_gshmem = params.is_gshmem;
 
-    let vm_state = snapshot_state_from_file(&params.snapshot_path, version_manager)?;
+    let vm_state = snapshot_state_from_file(&params.snapshot_path)?;
     let memory_file = snapshot_memory_from_file(&params.mem_file_path, is_gshmem)?;
 
     info!("[snapshot] snapshot file loaded");
@@ -370,28 +326,15 @@ pub fn load_vm_snapshot(
 /// Creates a Microvm snapshot for live-upgrade.
 pub fn create_vm_live_upgrade_state(
     vm: &mut Vm,
-    version_map: VersionMap,
     debug_path: Option<String>,
 ) -> Result<Vec<u8>, CreateSnapshotError> {
-    fail_point!("vmm_create_live_upgrade_state", |_| {
-        Err(CreateSnapshotError::Failpoint(
-            "vmm_create_live_upgrade_state".to_string(),
-        ))
-    });
-
     let vm_state = vm
         .live_upgrade_save_state()
         .map_err(CreateSnapshotError::MicrovmState)?;
-    debug!("live upgrade live_upgrade_save_state end.");
+    log::debug!("live upgrade live_upgrade_save_state end.");
 
     let mut snapshot_buf_writer = std::io::BufWriter::new(Vec::<u8>::new());
-    snapshot_state_to_buff(
-        &vm_state,
-        &mut snapshot_buf_writer,
-        &None,
-        version_map,
-        debug_path,
-    )?;
+    snapshot_state_to_buff(&vm_state, &mut snapshot_buf_writer, &None, debug_path)?;
 
     info!("live upgrade state buffer created");
 
@@ -404,139 +347,63 @@ pub fn create_vm_live_upgrade_state(
 
 pub fn load_vm_live_upgrade_state(
     state_buf: &mut Vec<u8>,
-    version_manager: &VersionManager,
 ) -> Result<VmState, LoadSnapshotError> {
-    fail_point!("vmm_load_live_upgrade_state", |_| {
-        Err(LoadSnapshotError::Failpoint(
-            "vmm_load_live_upgrade_state".to_string(),
-        ))
-    });
-
     info!("liveupgrade: load state start");
-    let vm_state = Snapshot::unchecked_load(&mut state_buf.as_slice(), version_manager)
+    let snapshot: Snapshot<VmState> = Snapshot::load(&mut state_buf.as_slice())
         .map_err(LoadSnapshotError::DeserializeMicrovmState)?;
     info!("liveupgrade: load state end");
-    Ok(vm_state)
+    Ok(snapshot.data)
 }
 
 #[cfg(test)]
 mod tests {
-
     use std::path::PathBuf;
-    use std::sync::{Arc, RwLock};
+    use std::sync::Arc;
 
-    use address_space::{AddressSpace, AddressSpaceRegion, AddressSpaceRegionType};
-    use io_drainer::IoDrainer;
-
-    use linux_loader::cmdline::Cmdline;
-    use utils::epoll_manager::EpollManager;
-    use utils::eventfd::EventFd;
-    use utils::tempfile::TempFile;
+    use dbs_address_space::{AddressSpace, AddressSpaceLayout, AddressSpaceRegion, AddressSpaceRegionType};
     use vm_memory::GuestAddress;
+    use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
-    use crate::api::v1::InstanceInfo;
-    use crate::default_syscalls::SeccompLevel;
-    use crate::event_manager::tests::get_exit_event_trigger;
-    use crate::test_utils::tests::create_address_space_layout;
-    use crate::vcpu::tests::setup_vcpu;
-    use crate::version_manager::VERSION_MANAGER;
-    use crate::vm::{KernelConfigInfo, VmConfigInfo};
+    use crate::test_utils::tests::create_vm_for_test;
 
     const GUEST_PHYS_END: u64 = (1 << 46) - 1;
     const GUEST_MEM_END: u64 = GUEST_PHYS_END >> 1;
     const GUEST_DEVICE_START: u64 = GUEST_MEM_END + 1;
 
+    fn create_address_space_layout() -> AddressSpaceLayout {
+        AddressSpaceLayout::new(GUEST_PHYS_END, GUEST_MEM_END, GUEST_DEVICE_START)
+    }
+
     #[test]
     fn test_persist_snapshot_state() {
-        let mut vm = setup_vcpu();
+        let vm = create_vm_for_test();
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         vm.create_pit().unwrap();
-        let kernel_file = TempFile::new().unwrap();
-        let kernel_file_path = kernel_file.as_path().to_str().unwrap().to_string();
-        let cmd_line = Cmdline::new(64);
-        vm.set_kernel_config(KernelConfigInfo::new(
-            None,
-            kernel_file.into_file(),
-            None,
-            cmd_line,
-            "".to_owned(),
-            None,
-            kernel_file_path,
-            None,
-            None,
-            None,
-        ));
-        let vm_config = VmConfigInfo {
-            vcpu_count: 1,
-            goku_vcpu_count: 0,
-            max_vcpu_count: 1,
-            cpu_pm: "off".to_string(),
-            mem_size_mib: 1,
-            ..Default::default()
-        };
-        vm.set_vm_config(vm_config);
-        vm.init_guest_memory().unwrap();
 
         let vm_state = vm.save_state().unwrap();
         let snapshot_path = TempFile::new().unwrap();
         let snapshot_path_buf = PathBuf::from(snapshot_path.as_path());
-
-        // test snapshot state to file
-        // // test version mismatch
-        // let version = Some("error version".to_owned());
-        // match snapshot_state_to_file(&vm_state, &snapshot_path_buf, &version, VersionMap::new()) {
-        //     Err(CreateSnapshotError::InvalidVersion) => assert!(true),
-        //     _ => assert!(false),
-        // }
 
         // test normal case
         assert!(snapshot_state_to_file(
             &vm_state,
             &PathBuf::from(snapshot_path.as_path()),
             &None,
-            VERSION_MANAGER.version_map().clone(),
             None,
         )
         .is_ok());
 
         // test restore state from file
-        match snapshot_state_from_file(&snapshot_path_buf, &VERSION_MANAGER) {
+        match snapshot_state_from_file(&snapshot_path_buf) {
             Ok(restored_vm_state) => assert!(vm_state == restored_vm_state),
             Err(_) => panic!(),
         }
     }
 
     #[test]
-    fn test_persist_snapshot_memeory() {
-        let mut vm = setup_vcpu();
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        vm.create_pit().unwrap();
-        let kernel_file = TempFile::new().unwrap();
-        let kernel_file_path = kernel_file.as_path().to_str().unwrap().to_string();
-        let cmd_line = Cmdline::new(64);
-        vm.set_kernel_config(KernelConfigInfo::new(
-            None,
-            kernel_file.into_file(),
-            None,
-            cmd_line,
-            "".to_owned(),
-            None,
-            kernel_file_path,
-            None,
-            None,
-            None,
-        ));
-        let vm_config = VmConfigInfo {
-            vcpu_count: 1,
-            goku_vcpu_count: 0,
-            max_vcpu_count: 1,
-            cpu_pm: "off".to_string(),
-            mem_size_mib: 1,
-            ..Default::default()
-        };
-        vm.set_vm_config(vm_config);
-        vm.init_guest_memory().unwrap();
+    fn test_persist_snapshot_memory() {
+        let vm = create_vm_for_test();
 
         let mem_file_path = TempFile::new().unwrap();
         let mem_file_path_buf = PathBuf::from(mem_file_path.as_path());
@@ -544,85 +411,6 @@ mod tests {
         assert!(snapshot_memory_to_file(&vm, &mem_file_path_buf, &SnapshotType::Full).is_ok());
         // test snapshot memory from file
         assert!(snapshot_memory_from_file(&mem_file_path_buf, false).is_ok());
-    }
-
-    #[test]
-    fn test_persist_snapshot_memeory_dirty() {
-        let instance_info = Arc::new(RwLock::new(InstanceInfo::default()));
-        let io_drainer = Arc::new(IoDrainer::new().unwrap());
-        let epoll_manager = EpollManager::default();
-        let mut vm = Vm::new(
-            None,
-            instance_info,
-            io_drainer,
-            epoll_manager,
-            None,
-            SeccompLevel::None,
-            get_exit_event_trigger(),
-        )
-        .unwrap();
-        vm.log_dirty_pages = true;
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        vm.create_pit().unwrap();
-        let kernel_file = TempFile::new().unwrap();
-        let kernel_file_path = kernel_file.as_path().to_str().unwrap().to_string();
-        let cmd_line = Cmdline::new(64);
-        vm.set_kernel_config(KernelConfigInfo::new(
-            None,
-            kernel_file.into_file(),
-            None,
-            cmd_line,
-            "".to_owned(),
-            None,
-            kernel_file_path,
-            None,
-            None,
-            None,
-        ));
-        let vm_config = VmConfigInfo {
-            vcpu_count: 1,
-            goku_vcpu_count: 0,
-            max_vcpu_count: 1,
-            cpu_pm: "off".to_string(),
-            mem_size_mib: 1,
-            ..Default::default()
-        };
-        vm.set_vm_config(vm_config);
-        vm.init_guest_memory().unwrap();
-
-        let vcpu_state_event = Arc::new(EventFd::new(libc::EFD_NONBLOCK).unwrap());
-        vm.init_vcpu_manager(
-            false,
-            vm.vm_as().unwrap().clone(),
-            #[cfg(feature = "dump")]
-            vm.vm_address_space().cloned().unwrap(),
-            #[cfg(feature = "dump")]
-            vm.device_manager.pvdump_shared_data.clone(),
-            #[cfg(feature = "goku-kernel")]
-            vm.device_manager.goku_is_living.clone(),
-            #[cfg(all(feature = "hypercall", target_arch = "x86_64"))]
-            vm.hc_ctx.clone(),
-            vcpu_state_event,
-        )
-        .unwrap();
-
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        {
-            vm.setup_interrupt_controller().unwrap();
-        }
-        vm.vcpu_manager()
-            .unwrap()
-            .create_vcpus(1, None, None)
-            .unwrap();
-        #[cfg(target_arch = "aarch64")]
-        {
-            vm.setup_interrupt_controller().unwrap();
-        }
-
-        let mem_file_path = TempFile::new().unwrap();
-        let mem_file_path_buf = PathBuf::from(mem_file_path.as_path());
-        // test snapshot diff memory to file
-        assert!(snapshot_memory_to_file(&vm, &mem_file_path_buf, &SnapshotType::Diff).is_ok(),);
     }
 
     #[test]

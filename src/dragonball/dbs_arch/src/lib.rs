@@ -17,7 +17,8 @@
 mod x86_64;
 #[cfg(target_arch = "x86_64")]
 pub use x86_64::*;
-mod page_size;
+/// Page size related utilities and functions.
+pub mod page_size;
 
 #[cfg(target_arch = "aarch64")]
 mod aarch64;

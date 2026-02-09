@@ -10,15 +10,11 @@ use std::fs::File;
 use std::io::{Seek, SeekFrom, Write};
 
 use dbs_address_space::AddressSpace;
-use dbs_arch::page_size;
-use snapshot::Persist;
-use versionize::{VersionMap, Versionize, VersionizeResult};
-use versionize_derive::Versionize;
-#[cfg(feature = "vm-snapshot")]
-use vm_memory::mmap::persist::GuestRegionMmapState;
+use dbs_arch::page_size::page_size;
+use serde::{Deserialize, Serialize};
 use vm_memory::{
-    Bytes, FileOffset, GuestAddress, GuestMemoryError, GuestMemoryMmap, GuestMemoryRegion,
-    GuestRegionMmap, MemoryRegionAddress, MmapRegion,
+    Bytes, FileOffset, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
+    GuestMemoryRegion, GuestRegionMmap, MemoryRegionAddress, MmapRegion,
 };
 
 use crate::resource_manager::ResourceError;
@@ -26,7 +22,7 @@ use crate::resource_manager::ResourceError;
 pub type DirtyBitmap = HashMap<usize, Vec<u64>>;
 
 /// State of a guest memory region saved to file/buffer.
-#[derive(Debug, PartialEq, Versionize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct GuestMemoryRegionState {
     /// Base address
     pub base_address: u64,
@@ -37,18 +33,10 @@ pub struct GuestMemoryRegionState {
 }
 
 /// Guest memory state
-#[derive(Debug, Default, PartialEq, Versionize)]
+#[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GuestMemoryState {
     /// List of regions
     pub regions: Vec<GuestMemoryRegionState>,
-}
-
-#[cfg(feature = "vm-snapshot")]
-/// Guest memory state when doing live upgrade
-#[derive(Debug, Versionize, PartialEq)]
-pub struct GuestMemoryLiveUpgradeState {
-    /// List of regions
-    pub regions: Vec<GuestRegionMmapState>,
 }
 
 /// Errors associated with dumping guest memory to file.
@@ -101,15 +89,6 @@ where
     /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a writter.
     fn dump_dirty<T: Write + Seek>(&self, writer: &mut T, dirty_bitmap: &DirtyBitmap) -> Result;
 
-    #[cfg(feature = "vm-snapshot")]
-    /// Get the GuestMemoryState when doing live upgrade
-    fn live_upgrade_save(&self, address_space: &AddressSpace) -> GuestMemoryLiveUpgradeState;
-
-    #[cfg(feature = "vm-snapshot")]
-    /// Get GuestMemoryMmap when doing live upgrade
-    fn live_upgrade_restore(
-        state: &GuestMemoryLiveUpgradeState,
-    ) -> std::result::Result<Self, Error>;
     /// Creates a GuestMemoryMmap given a `file` containing the data , a `state`
     /// containing mapping information, and `is_gshmem` indeciates the file is
     /// on gshmem fs or not.
@@ -167,9 +146,7 @@ impl SnapshotMemory for GuestMemoryMmap {
             //
             // Same to DeviceMemory.
             if let Some(address_space) = address_space {
-                if address_space.is_dax_region(region.start_addr())
-                    || address_space.is_device_region(region.start_addr())
-                {
+                if address_space.is_dax_region(region.start_addr()) {
                     continue;
                 }
             }
@@ -282,35 +259,6 @@ impl SnapshotMemory for GuestMemoryMmap {
         Ok(())
     }
 
-    #[cfg(feature = "vm-snapshot")]
-    fn live_upgrade_save(&self, address_space: &AddressSpace) -> GuestMemoryLiveUpgradeState {
-        let mut regions = Vec::new();
-        // safe to unwrap
-        for region in self.iter() {
-            // Vfio device need to active after upgrade, and then DeviceMemory will be added to vm_as/address_space.
-            // So we should not save DeviceMemory here.
-            if address_space.is_device_region(region.start_addr()) {
-                continue;
-            }
-            regions.push(region.live_upgrade_save());
-        }
-
-        GuestMemoryLiveUpgradeState { regions }
-    }
-
-    #[cfg(feature = "vm-snapshot")]
-    fn live_upgrade_restore(
-        state: &GuestMemoryLiveUpgradeState,
-    ) -> std::result::Result<Self, Error> {
-        let mut regions = Vec::new();
-        for region in state.regions.iter() {
-            regions.push(
-                GuestRegionMmap::live_upgrade_restore((), region).map_err(Error::MemoryMmap)?,
-            );
-        }
-        Self::from_regions(regions).map_err(Error::CreateMemory)
-    }
-
     fn restore(
         file: &File,
         state: &GuestMemoryState,
@@ -333,7 +281,6 @@ impl SnapshotMemory for GuestMemoryMmap {
                 region.size,
                 libc::PROT_READ | libc::PROT_WRITE,
                 flags,
-                None,
             )
             .map(|r| GuestRegionMmap::new(r, GuestAddress(region.base_address)))
             .map_err(Error::CreateRegion)?
@@ -349,19 +296,21 @@ impl SnapshotMemory for GuestMemoryMmap {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::mem::ManuallyDrop;
     use std::sync::Arc;
 
-    use address_space::{AddressSpaceRegion, AddressSpaceRegionType};
-    use utils::tempfile::TempFile;
+    use dbs_address_space::{AddressSpaceLayout, AddressSpaceRegion, AddressSpaceRegionType};
     use vm_memory::{GuestAddress, GuestMemory, GuestUsize};
+    use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
-    use crate::test_utils::tests::create_address_space_layout;
 
     const GUEST_PHYS_END: u64 = (1 << 46) - 1;
     const GUEST_MEM_END: u64 = GUEST_PHYS_END >> 1;
     const GUEST_DEVICE_START: u64 = GUEST_MEM_END + 1;
+
+    fn create_address_space_layout() -> AddressSpaceLayout {
+        AddressSpaceLayout::new(GUEST_PHYS_END, GUEST_MEM_END, GUEST_DEVICE_START)
+    }
 
     // create address_space from mem
     pub(crate) fn create_address_space_from_ranges(
@@ -601,52 +550,5 @@ mod tests {
 
             assert_eq!(restored_guest_memory.num_regions(), 2);
         }
-    }
-
-    #[test]
-    fn test_persist_live_upgrade_save_restore() {
-        let page_size = page_size() as usize;
-
-        // Two regions of two pages each, with a one page gap between them.
-        let mem_regions = [
-            (GuestAddress(0), page_size * 2),
-            (GuestAddress(page_size as u64 * 3), page_size * 2),
-        ];
-        let guest_memory = GuestMemoryMmap::from_ranges(&mem_regions[..]).unwrap();
-
-        // Fill the first region with 1s and the second with 2s.
-        let first_region = vec![1u8; page_size * 2];
-        guest_memory
-            .write(&first_region[..], GuestAddress(0))
-            .unwrap();
-
-        let second_region = vec![2u8; page_size * 2];
-        guest_memory
-            .write(&second_region[..], GuestAddress(page_size as u64 * 3))
-            .unwrap();
-
-        let address_space = create_address_space_from_ranges(
-            &mem_regions[..],
-            AddressSpaceRegionType::DefaultMemory,
-        );
-        let memory_state = guest_memory.live_upgrade_save(&address_space);
-
-        let restored_guest_memory =
-            ManuallyDrop::new(GuestMemoryMmap::live_upgrade_restore(&memory_state).unwrap());
-
-        // Check that the region contents are the same.
-        let mut actual_region = vec![0u8; page_size * 2];
-        restored_guest_memory
-            .read(actual_region.as_mut_slice(), GuestAddress(0))
-            .unwrap();
-        assert_eq!(first_region, actual_region);
-
-        restored_guest_memory
-            .read(
-                actual_region.as_mut_slice(),
-                GuestAddress(page_size as u64 * 3),
-            )
-            .unwrap();
-        assert_eq!(second_region, actual_region);
     }
 }

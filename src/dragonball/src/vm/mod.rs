@@ -1,6 +1,7 @@
 // Copyright (C) 2021 Alibaba Cloud. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::ops::Deref;
 use std::os::unix::io::RawFd;
@@ -20,8 +21,10 @@ use linux_loader::loader::{KernelLoader, KernelLoaderResult};
 use seccompiler::BpfProgram;
 use serde_derive::{Deserialize, Serialize};
 use slog::{error, info};
-use vm_memory::{Bytes, GuestAddress, GuestAddressSpace};
+use vm_memory::{Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryRegion};
 use vmm_sys_util::eventfd::EventFd;
+
+use crate::memory_snapshot::DirtyBitmap;
 
 #[cfg(all(feature = "hotplug", feature = "dbs-upcall"))]
 use dbs_upcall::{DevMgrService, UpcallClient};
@@ -47,6 +50,9 @@ use dbs_arch::gic::Error as GICError;
 
 mod kernel_config;
 pub use self::kernel_config::KernelConfigInfo;
+
+/// VM state persistence for checkpoint/snapshot.
+pub mod persist;
 
 #[cfg(target_arch = "aarch64")]
 #[path = "aarch64.rs"]
@@ -774,7 +780,7 @@ impl Vm {
         let mem = self.vm_as().unwrap().memory();
         for (slot, region) in mem.iter().enumerate() {
             let bitmap_region = self
-                .fd
+                .vm_fd
                 .get_dirty_log(slot as u32, region.len() as usize)
                 .map_err(Error::Kvm)?;
             bitmap.insert(slot, bitmap_region);

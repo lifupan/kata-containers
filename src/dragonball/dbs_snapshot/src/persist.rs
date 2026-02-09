@@ -3,6 +3,8 @@
 
 //! Defines an abstract interface for saving/restoring a component from state.
 
+use serde::{Deserialize, Serialize};
+
 /// An abstract interface for saving/restoring a component using a specific state.
 pub trait Persist<'a>
 where
@@ -22,4 +24,11 @@ where
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> std::result::Result<Self, Self::Error>;
+}
+
+/// A minimal microVM state struct used for snapshot testing.
+#[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct MicrovmState {
+    /// Dummy field for testing snapshot serialization.
+    pub dummy: u64,
 }
