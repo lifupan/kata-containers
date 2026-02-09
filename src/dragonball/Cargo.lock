@@ -84,6 +84,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ba43ea6f343b788c8764558649e08df62f86c6ef251fdaeb1ffd010a9ae50a2"
 
 [[package]]
+name = "bincode"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36eaf5d7b090263e8150820482d5d93cd964a81e4019913c972f4edcc6edb740"
+dependencies = [
+ "bincode_derive",
+ "serde",
+ "unty",
+]
+
+[[package]]
+name = "bincode_derive"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf95709a440f45e986983918d0e8a1f30a9b1df04918fc828670606804ac3c09"
+dependencies = [
+ "virtue",
+]
+
+[[package]]
 name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -227,6 +247,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "crc64"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2707e3afba5e19b75d582d88bc79237418f2a2a2d673d01cf9b03633b46e98f3"
+
+[[package]]
 name = "crossbeam-channel"
 version = "0.5.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -286,6 +312,8 @@ dependencies = [
  "kvm-ioctls",
  "libc",
  "memoffset 0.6.5",
+ "once_cell",
+ "serde",
  "thiserror 1.0.48",
  "vm-memory",
  "vmm-sys-util",
@@ -344,20 +372,40 @@ name = "dbs-pci"
 version = "0.1.0"
 dependencies = [
  "byteorder",
+ "dbs-address-space",
  "dbs-allocator",
  "dbs-arch",
  "dbs-boot",
  "dbs-device",
  "dbs-interrupt",
+ "dbs-utils",
+ "dbs-virtio-devices",
  "downcast-rs",
  "kvm-bindings",
  "kvm-ioctls",
  "libc",
  "log",
+ "serde",
  "thiserror 1.0.48",
  "vfio-bindings",
  "vfio-ioctls",
+ "virtio-queue",
  "vm-memory",
+ "vmm-sys-util",
+]
+
+[[package]]
+name = "dbs-snapshot"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "crc64",
+ "displaydoc",
+ "libc",
+ "semver",
+ "serde",
+ "thiserror 1.0.48",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -524,10 +572,12 @@ dependencies = [
  "dbs-interrupt",
  "dbs-legacy-devices",
  "dbs-pci",
+ "dbs-snapshot",
  "dbs-upcall",
  "dbs-utils",
  "dbs-virtio-devices",
  "derivative",
+ "displaydoc",
  "fuse-backend-rs",
  "kvm-bindings",
  "kvm-ioctls",
@@ -539,6 +589,7 @@ dependencies = [
  "procfs 0.12.0",
  "prometheus",
  "seccompiler",
+ "semver",
  "serde",
  "serde_derive",
  "serde_json",
@@ -1841,6 +1892,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "semver"
+version = "1.0.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d767eb0aabc880b29956c35734170f26ed551a859dbd361d140cdbeca61ab1e2"
+dependencies = [
+ "serde",
+ "serde_core",
+]
+
+[[package]]
 name = "sendfd"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1851,18 +1912,28 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.188"
+version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf9e0fcba69a370eed61bcf2b728575f726b50b55cba78064753d708ddc7549e"
+checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
+dependencies = [
+ "serde_core",
+ "serde_derive",
+]
+
+[[package]]
+name = "serde_core"
+version = "1.0.228"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41d385c7d4ca58e59fc732af25c3983b67ac852c1a25000afe1175de458b67ad"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.188"
+version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4eca7ac642d82aa35b60049a6eccb4be6be75e599bd2e9adb5f875a737654af2"
+checksum = "d540f220d3187173da220f885ab66608367b6574e925011a9353e4badda91d79"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2302,6 +2373,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "301abaae475aa91687eb82514b328ab47a211a533026cb25fc3e519b86adfc3c"
 
 [[package]]
+name = "unty"
+version = "0.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d49784317cd0d1ee7ec5c716dd598ec5b4483ea832a2dced265471cc0f690ae"
+
+[[package]]
 name = "url"
 version = "2.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2382,6 +2459,12 @@ dependencies = [
  "vm-memory",
  "vmm-sys-util",
 ]
+
+[[package]]
+name = "virtue"
+version = "0.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "051eb1abcf10076295e815102942cc58f9d5e3b4560e46e53c21e8ff6f3af7b1"
 
 [[package]]
 name = "vm-fdt"
