@@ -309,7 +309,7 @@ mod tests {
     const GUEST_DEVICE_START: u64 = GUEST_MEM_END + 1;
 
     fn create_address_space_layout() -> AddressSpaceLayout {
-        AddressSpaceLayout::new(GUEST_PHYS_END, GUEST_MEM_END, GUEST_DEVICE_START)
+        AddressSpaceLayout::new(GUEST_PHYS_END, 0, GUEST_DEVICE_START)
     }
 
     // create address_space from mem

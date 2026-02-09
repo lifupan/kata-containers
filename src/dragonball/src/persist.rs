@@ -366,17 +366,19 @@ mod tests {
 
     use super::*;
     use crate::test_utils::tests::create_vm_for_test;
+    use test_utils::skip_if_not_root;
 
     const GUEST_PHYS_END: u64 = (1 << 46) - 1;
     const GUEST_MEM_END: u64 = GUEST_PHYS_END >> 1;
     const GUEST_DEVICE_START: u64 = GUEST_MEM_END + 1;
 
     fn create_address_space_layout() -> AddressSpaceLayout {
-        AddressSpaceLayout::new(GUEST_PHYS_END, GUEST_MEM_END, GUEST_DEVICE_START)
+        AddressSpaceLayout::new(GUEST_PHYS_END, 0, GUEST_DEVICE_START)
     }
 
     #[test]
     fn test_persist_snapshot_state() {
+        skip_if_not_root!();
         let vm = create_vm_for_test();
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         vm.create_pit().unwrap();
@@ -403,6 +405,7 @@ mod tests {
 
     #[test]
     fn test_persist_snapshot_memory() {
+        skip_if_not_root!();
         let vm = create_vm_for_test();
 
         let mem_file_path = TempFile::new().unwrap();

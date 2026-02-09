@@ -98,9 +98,11 @@ impl Vm {
 mod tests {
     use super::*;
     use crate::vm::tests::create_vm_instance;
+    use test_utils::skip_if_not_root;
 
     #[test]
     fn test_save_state_basic() {
+        skip_if_not_root!();
         let mut vm = create_vm_instance();
         let vm_config = crate::vm::VmConfigInfo {
             vcpu_count: 1,
@@ -125,6 +127,7 @@ mod tests {
 
     #[test]
     fn test_save_state_serialization_roundtrip() {
+        skip_if_not_root!();
         let mut vm = create_vm_instance();
         let vm_config = crate::vm::VmConfigInfo {
             vcpu_count: 2,
