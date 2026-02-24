@@ -414,12 +414,15 @@ where
                 .set_vring_addr(vq_index, config_data)
                 .map_err(|err| VirtioError::VhostNet(Error::VhostError(err)))?;
 
+            // SAFETY: Both EventFd types (vmm-sys-util 0.15.x and 0.11.x) have identical
+            // memory layouts. Transmute is needed to bridge two semver-incompatible versions
+            // of vmm-sys-util that coexist in the dependency tree.
             handle
-                .set_vring_call(vq_index, intr_evts[queue_index])
+                .set_vring_call(vq_index, unsafe { std::mem::transmute(intr_evts[queue_index]) })
                 .map_err(|err| VirtioError::VhostNet(Error::VhostError(err)))?;
 
             handle
-                .set_vring_kick(vq_index, &queue_cfg.eventfd)
+                .set_vring_kick(vq_index, unsafe { std::mem::transmute(&queue_cfg.eventfd) })
                 .map_err(|err| VirtioError::VhostNet(Error::VhostError(err)))?;
 
             handle
