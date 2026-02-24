@@ -26,11 +26,12 @@
 //! full execution-resume snapshot would require those as a future enhancement.
 
 use std::fs::{self, File};
-use std::io::{BufWriter, Read, Write};
+use std::io::{BufWriter, Write};
+use std::os::unix::io::AsRawFd;
 use std::path::Path;
 
 use serde_derive::{Deserialize, Serialize};
-use vm_memory::{address::Address, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryRegion};
+use vm_memory::{address::Address, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryRegion, MemoryRegionAddress};
 
 use crate::address_space_manager::GuestAddressSpaceImpl;
 use crate::vcpu::VcpuManagerError;
@@ -131,75 +132,114 @@ pub fn dump_memory<W: Write>(
             .write_all(&size.to_le_bytes())
             .map_err(SnapshotError::IoError)?;
 
-        // Access raw memory via the host pointer for efficient bulk copy.
-        // SAFETY: `get_host_address(MemoryRegionAddress(0))` returns the host-side
-        // pointer to the start of this memory region with `size` bytes mapped.
-        // The slice lives only within this iteration step, vCPUs are paused by the
-        // caller before dumping, so no concurrent modifications can occur during
-        // the read.  The pointer remains valid for the lifetime of the `region`
-        // reference, which is bound to the `memory` Arc held by this function.
-        let host_addr = region
-            .get_host_address(vm_memory::MemoryRegionAddress(0))
+        // Use vm-memory's write_all_to to dump the region contents safely.
+        region
+            .write_all_to(MemoryRegionAddress(0), &mut writer, size as usize)
             .map_err(|_| SnapshotError::GuestMemoryAccess)?;
-        let data =
-            unsafe { std::slice::from_raw_parts(host_addr as *const u8, size as usize) };
-        writer
-            .write_all(data)
-            .map_err(SnapshotError::IoError)?;
     }
 
     Ok(())
 }
 
-/// Restore guest memory from a previously created memory snapshot.
+/// Restore guest memory from a previously created memory snapshot file using mmap.
 ///
-/// Reads region headers and data from `reader` and overwrites the
-/// corresponding guest physical address ranges in the running VM.
-pub fn restore_memory<R: Read>(
+/// The snapshot file is memory-mapped for efficient access, avoiding large heap
+/// allocations. Region headers and data are read from the mapped region and
+/// written into the corresponding guest physical address ranges.
+pub fn restore_memory(
     vm_as: &GuestAddressSpaceImpl,
-    mut reader: R,
+    file: &File,
 ) -> Result<(), SnapshotError> {
     let memory = vm_as.memory();
 
-    // Verify magic header.
-    let mut magic = [0u8; 8];
-    reader
-        .read_exact(&mut magic)
-        .map_err(SnapshotError::IoError)?;
-    if &magic != SNAPSHOT_MAGIC {
+    let file_size = file
+        .metadata()
+        .map_err(SnapshotError::IoError)?
+        .len() as usize;
+    if file_size < 16 {
         return Err(SnapshotError::InvalidMagic);
     }
 
-    // Read number of regions.
-    let mut buf8 = [0u8; 8];
-    reader
-        .read_exact(&mut buf8)
-        .map_err(SnapshotError::IoError)?;
-    let num_regions = u64::from_le_bytes(buf8) as usize;
-
-    // Restore each region.
-    for _ in 0..num_regions {
-        reader
-            .read_exact(&mut buf8)
-            .map_err(SnapshotError::IoError)?;
-        let guest_addr = u64::from_le_bytes(buf8);
-
-        reader
-            .read_exact(&mut buf8)
-            .map_err(SnapshotError::IoError)?;
-        let size = u64::from_le_bytes(buf8) as usize;
-
-        let mut data = vec![0u8; size];
-        reader
-            .read_exact(&mut data)
-            .map_err(SnapshotError::IoError)?;
-
-        memory
-            .write_slice(&data, GuestAddress(guest_addr))
-            .map_err(|_| SnapshotError::GuestMemoryAccess)?;
+    // SAFETY: We mmap the file as MAP_PRIVATE | PROT_READ. The file descriptor is
+    // valid for the duration of this function, and `file_size` matches the actual
+    // file length. The mapping is cleaned up via `munmap` before returning.
+    let mmap_ptr = unsafe {
+        libc::mmap(
+            std::ptr::null_mut(),
+            file_size,
+            libc::PROT_READ,
+            libc::MAP_PRIVATE,
+            file.as_raw_fd(),
+            0,
+        )
+    };
+    if mmap_ptr == libc::MAP_FAILED {
+        return Err(SnapshotError::IoError(std::io::Error::last_os_error()));
     }
 
-    Ok(())
+    // SAFETY: `mmap_ptr` points to a valid mapping of `file_size` bytes created
+    // above. The slice is read-only and lives only within this function scope.
+    let data = unsafe { std::slice::from_raw_parts(mmap_ptr as *const u8, file_size) };
+
+    // Use a closure so we can always munmap, even on error.
+    let result = (|| -> Result<(), SnapshotError> {
+        // Verify magic header.
+        if &data[..8] != SNAPSHOT_MAGIC {
+            return Err(SnapshotError::InvalidMagic);
+        }
+        let mut offset = 8usize;
+
+        // Read number of regions.
+        let num_regions = {
+            let mut buf = [0u8; 8];
+            buf.copy_from_slice(&data[offset..offset + 8]);
+            u64::from_le_bytes(buf) as usize
+        };
+        offset += 8;
+
+        // Restore each region.
+        for _ in 0..num_regions {
+            if data.len() < offset + 16 {
+                return Err(SnapshotError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "truncated snapshot file",
+                )));
+            }
+            let guest_addr = {
+                let mut buf = [0u8; 8];
+                buf.copy_from_slice(&data[offset..offset + 8]);
+                u64::from_le_bytes(buf)
+            };
+            offset += 8;
+            let size = {
+                let mut buf = [0u8; 8];
+                buf.copy_from_slice(&data[offset..offset + 8]);
+                u64::from_le_bytes(buf) as usize
+            };
+            offset += 8;
+
+            if data.len() < offset + size {
+                return Err(SnapshotError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "truncated snapshot file",
+                )));
+            }
+
+            memory
+                .write_slice(&data[offset..offset + size], GuestAddress(guest_addr))
+                .map_err(|_| SnapshotError::GuestMemoryAccess)?;
+            offset += size;
+        }
+
+        Ok(())
+    })();
+
+    // SAFETY: `mmap_ptr` and `file_size` correspond to the mapping created above.
+    unsafe {
+        libc::munmap(mmap_ptr, file_size);
+    }
+
+    result
 }
 
 /// Save the serialised `state` as `vmm_state.json` inside `snapshot_dir`.
@@ -257,12 +297,12 @@ pub fn restore_snapshot_memory(
 ) -> Result<(), SnapshotError> {
     let mem_path = Path::new(snapshot_dir).join(MEMORY_FILE);
     let mem_file = File::open(&mem_path).map_err(SnapshotError::IoError)?;
-    restore_memory(vm_as, mem_file)
+    restore_memory(vm_as, &mem_file)
 }
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
+    use std::io::Write;
 
     use vm_memory::{GuestAddress, GuestMemoryMmap};
 
@@ -291,6 +331,15 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
         dump_memory(&vm_as, &mut buf).expect("dump_memory");
 
+        // Write the buffer to a temporary file for mmap-based restore.
+        let dir = std::env::temp_dir().join("dbsnap_dump_restore");
+        std::fs::create_dir_all(&dir).unwrap();
+        let snap_path = dir.join("memory.bin");
+        {
+            let mut f = File::create(&snap_path).unwrap();
+            f.write_all(&buf).unwrap();
+        }
+
         // Clear the memory region.
         {
             let memory = vm_as.memory();
@@ -299,23 +348,40 @@ mod tests {
                 .unwrap();
         }
 
-        // Restore from the buffer.
-        restore_memory(&vm_as, Cursor::new(&buf)).expect("restore_memory");
+        // Restore from the file using mmap.
+        let file = File::open(&snap_path).unwrap();
+        restore_memory(&vm_as, &file).expect("restore_memory");
 
         // Verify the pattern is back.
         let memory = vm_as.memory();
         let mut readback = [0u8; 4];
         memory.read_slice(&mut readback, GuestAddress(0)).unwrap();
         assert_eq!(readback, [0xDE, 0xAD, 0xBE, 0xEF]);
+
+        // Cleanup.
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn test_restore_invalid_magic() {
         let vm_as = make_test_memory();
-        // Feed data with wrong magic.
-        let bad_data = b"BADMAGIC\x01\x00\x00\x00\x00\x00\x00\x00";
-        let result = restore_memory(&vm_as, Cursor::new(bad_data.as_ref()));
+
+        // Write data with wrong magic to a temporary file.
+        let dir = std::env::temp_dir().join("dbsnap_bad_magic");
+        std::fs::create_dir_all(&dir).unwrap();
+        let snap_path = dir.join("memory.bin");
+        {
+            let mut f = File::create(&snap_path).unwrap();
+            f.write_all(b"BADMAGIC\x01\x00\x00\x00\x00\x00\x00\x00")
+                .unwrap();
+        }
+
+        let file = File::open(&snap_path).unwrap();
+        let result = restore_memory(&vm_as, &file);
         assert!(matches!(result, Err(SnapshotError::InvalidMagic)));
+
+        // Cleanup.
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
