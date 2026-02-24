@@ -388,8 +388,12 @@ impl Vcpu {
     /// kick the vcpu running on the current thread, if there is one.
     pub fn register_kick_signal_handler() {
         extern "C" fn handle_signal(_: c_int, _: *mut siginfo_t, _: *mut c_void) {
-            // This is safe because it's temporarily aliasing the `Vcpu` object, but we are
-            // only reading `vcpu.fd` which does not change for the lifetime of the `Vcpu`.
+            // SAFETY: This signal handler runs on the vcpu thread itself. The
+            // set_kvm_immediate_exit() call only writes a single byte to the
+            // memory-mapped kvm_run region. The signal interrupts the KVM_RUN
+            // ioctl, so there is no concurrent Rust-level mutation of VcpuFd.
+            // The Arc is used for lifecycle management; only this thread mutates
+            // the VcpuFd.
             unsafe {
                 let _ = Vcpu::run_on_thread_local(|vcpu| {
                     let fd = &mut *(Arc::as_ptr(&vcpu.fd) as *mut VcpuFd);
@@ -445,9 +449,10 @@ impl Vcpu {
     ///
     /// Returns error or enum specifying whether emulation was handled or interrupted.
     fn run_emulation(&mut self) -> Result<VcpuEmulation> {
-        // SAFETY: The vcpu thread is the only thread that calls run() on this VcpuFd.
-        // The Arc is shared for lifecycle management but this is the only mutable access
-        // point during vcpu execution.
+        // SAFETY: The vcpu thread is the sole accessor of the VcpuFd. The Arc is
+        // shared with VcpuInfo for lifecycle management (vcpu fd reuse on hot-plug),
+        // but only this thread calls run() or set_kvm_immediate_exit(). No other
+        // thread holds a mutable reference to the VcpuFd simultaneously.
         let fd = unsafe { &mut *(Arc::as_ptr(&self.fd) as *mut VcpuFd) };
         match Vcpu::emulate(fd) {
             Ok(run) => {
@@ -525,8 +530,9 @@ impl Vcpu {
                 match e.errno() {
                     libc::EAGAIN => Ok(VcpuEmulation::Handled),
                     libc::EINTR => {
-                        // SAFETY: This is the only thread that accesses the VcpuFd mutably
-                        // at this point (after run() has returned).
+                        // SAFETY: Same rationale as run_emulation: the vcpu thread
+                        // is the sole accessor. run() has returned, so the mutable
+                        // borrow from emulate() is no longer active.
                         let fd = unsafe { &mut *(Arc::as_ptr(&self.fd) as *mut VcpuFd) };
                         fd.set_kvm_immediate_exit(0);
                         // Notify that this KVM_RUN was interrupted.
