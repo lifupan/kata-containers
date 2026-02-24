@@ -13,7 +13,7 @@ readme = "README.md"
 [dependencies]
 dbs-device = { workspace = true }
 dbs-arch = { workspace = true }
-kvm-bindings = { workspace = true, optional = true }
+kvm-bindings = { workspace = true, optional = true, features = ["fam-wrappers"] }
 kvm-ioctls = { workspace = true, optional = true }
 libc = "0.2"
 vmm-sys-util = {workspace = true}
