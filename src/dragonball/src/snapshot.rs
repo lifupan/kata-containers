@@ -156,7 +156,7 @@ pub fn restore_memory(
         .metadata()
         .map_err(SnapshotError::IoError)?
         .len() as usize;
-    if file_size < 16 {
+    if file_size < 8 {
         return Err(SnapshotError::InvalidMagic);
     }
 
@@ -190,6 +190,12 @@ pub fn restore_memory(
         let mut offset = 8usize;
 
         // Read number of regions.
+        if data.len() < offset + 8 {
+            return Err(SnapshotError::IoError(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "truncated snapshot file",
+            )));
+        }
         let num_regions = {
             let mut buf = [0u8; 8];
             buf.copy_from_slice(&data[offset..offset + 8]);
@@ -332,7 +338,7 @@ mod tests {
         dump_memory(&vm_as, &mut buf).expect("dump_memory");
 
         // Write the buffer to a temporary file for mmap-based restore.
-        let dir = std::env::temp_dir().join("dbsnap_dump_restore");
+        let dir = std::env::temp_dir().join(format!("dbsnap_dump_restore_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let snap_path = dir.join("memory.bin");
         {
@@ -367,7 +373,7 @@ mod tests {
         let vm_as = make_test_memory();
 
         // Write data with wrong magic to a temporary file.
-        let dir = std::env::temp_dir().join("dbsnap_bad_magic");
+        let dir = std::env::temp_dir().join(format!("dbsnap_bad_magic_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let snap_path = dir.join("memory.bin");
         {
