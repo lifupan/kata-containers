@@ -388,11 +388,16 @@ impl Vcpu {
     /// kick the vcpu running on the current thread, if there is one.
     pub fn register_kick_signal_handler() {
         extern "C" fn handle_signal(_: c_int, _: *mut siginfo_t, _: *mut c_void) {
-            // This is safe because it's temporarily aliasing the `Vcpu` object, but we are
-            // only reading `vcpu.fd` which does not change for the lifetime of the `Vcpu`.
+            // SAFETY: This signal handler runs on the vcpu thread itself. The
+            // set_kvm_immediate_exit() call only writes a single byte to the
+            // memory-mapped kvm_run region. The signal interrupts the KVM_RUN
+            // ioctl, so there is no concurrent Rust-level mutation of VcpuFd.
+            // The Arc is used for lifecycle management; only this thread mutates
+            // the VcpuFd.
             unsafe {
                 let _ = Vcpu::run_on_thread_local(|vcpu| {
-                    vcpu.fd.set_kvm_immediate_exit(1);
+                    let fd = &mut *(Arc::as_ptr(&vcpu.fd) as *mut VcpuFd);
+                    fd.set_kvm_immediate_exit(1);
                     fence(Ordering::Release);
                 });
             }
@@ -436,7 +441,7 @@ impl Vcpu {
 
     /// Extract the vcpu running logic for test mocking.
     #[cfg(not(test))]
-    pub fn emulate(fd: &VcpuFd) -> std::result::Result<VcpuExit<'_>, kvm_ioctls::Error> {
+    pub fn emulate(fd: &mut VcpuFd) -> std::result::Result<VcpuExit<'_>, kvm_ioctls::Error> {
         fd.run()
     }
 
@@ -444,7 +449,12 @@ impl Vcpu {
     ///
     /// Returns error or enum specifying whether emulation was handled or interrupted.
     fn run_emulation(&mut self) -> Result<VcpuEmulation> {
-        match Vcpu::emulate(&self.fd) {
+        // SAFETY: The vcpu thread is the sole accessor of the VcpuFd. The Arc is
+        // shared with VcpuInfo for lifecycle management (vcpu fd reuse on hot-plug),
+        // but only this thread calls run() or set_kvm_immediate_exit(). No other
+        // thread holds a mutable reference to the VcpuFd simultaneously.
+        let fd = unsafe { &mut *(Arc::as_ptr(&self.fd) as *mut VcpuFd) };
+        match Vcpu::emulate(fd) {
             Ok(run) => {
                 match run {
                     #[cfg(target_arch = "x86_64")]
@@ -493,14 +503,14 @@ impl Vcpu {
                     VcpuExit::SystemEvent(event_type, event_flags) => match event_type {
                         KVM_SYSTEM_EVENT_RESET | KVM_SYSTEM_EVENT_SHUTDOWN => {
                             info!(
-                                "Received KVM_SYSTEM_EVENT: type: {event_type}, event: {event_flags}"
+                                "Received KVM_SYSTEM_EVENT: type: {event_type}, event: {event_flags:?}"
                             );
                             Ok(VcpuEmulation::Stopped)
                         }
                         _ => {
                             self.metrics.failures.inc();
                             error!(
-                                "Received KVM_SYSTEM_EVENT signal type: {event_type}, flag: {event_flags}"
+                                "Received KVM_SYSTEM_EVENT signal type: {event_type}, flag: {event_flags:?}"
                             );
                             Err(VcpuError::VcpuUnhandledKvmExit)
                         }
@@ -520,7 +530,11 @@ impl Vcpu {
                 match e.errno() {
                     libc::EAGAIN => Ok(VcpuEmulation::Handled),
                     libc::EINTR => {
-                        self.fd.set_kvm_immediate_exit(0);
+                        // SAFETY: Same rationale as run_emulation: the vcpu thread
+                        // is the sole accessor. run() has returned, so the mutable
+                        // borrow from emulate() is no longer active.
+                        let fd = unsafe { &mut *(Arc::as_ptr(&self.fd) as *mut VcpuFd) };
+                        fd.set_kvm_immediate_exit(0);
                         // Notify that this KVM_RUN was interrupted.
                         Ok(VcpuEmulation::Interrupted)
                     }
@@ -804,7 +818,7 @@ pub mod tests {
         FailEntry(u64, u32),
         InternalError,
         Unknown,
-        SystemEvent(u32, u64),
+        SystemEvent(u32, Vec<u64>),
         Error(i32),
     }
 
@@ -813,7 +827,7 @@ pub mod tests {
     }
 
     impl Vcpu {
-        pub fn emulate(_fd: &VcpuFd) -> std::result::Result<VcpuExit<'_>, kvm_ioctls::Error> {
+        pub fn emulate(_fd: &mut VcpuFd) -> std::result::Result<VcpuExit<'_>, kvm_ioctls::Error> {
             let res = &*EMULATE_RES.lock().unwrap();
             match res {
                 EmulationCase::IoIn => Ok(VcpuExit::IoIn(0, &mut [])),
@@ -828,7 +842,10 @@ pub mod tests {
                 EmulationCase::InternalError => Ok(VcpuExit::InternalError),
                 EmulationCase::Unknown => Ok(VcpuExit::Unknown),
                 EmulationCase::SystemEvent(event_type, event_flags) => {
-                    Ok(VcpuExit::SystemEvent(*event_type, *event_flags))
+                    // Leak is acceptable in tests; this data lives for the test duration.
+                    let flags: &'static [u64] =
+                        Box::leak(event_flags.clone().into_boxed_slice());
+                    Ok(VcpuExit::SystemEvent(*event_type, flags))
                 }
                 EmulationCase::Error(e) => Err(kvm_ioctls::Error::new(*e)),
             }
@@ -947,17 +964,19 @@ pub mod tests {
         assert!(matches!(res, Err(VcpuError::VcpuUnhandledKvmExit)));
 
         // KVM_SYSTEM_EVENT_RESET
-        *(EMULATE_RES.lock().unwrap()) = EmulationCase::SystemEvent(KVM_SYSTEM_EVENT_RESET, 0);
+        *(EMULATE_RES.lock().unwrap()) =
+            EmulationCase::SystemEvent(KVM_SYSTEM_EVENT_RESET, vec![0]);
         let res = vcpu.run_emulation();
         assert!(matches!(res, Ok(VcpuEmulation::Stopped)));
 
         // KVM_SYSTEM_EVENT_SHUTDOWN
-        *(EMULATE_RES.lock().unwrap()) = EmulationCase::SystemEvent(KVM_SYSTEM_EVENT_SHUTDOWN, 0);
+        *(EMULATE_RES.lock().unwrap()) =
+            EmulationCase::SystemEvent(KVM_SYSTEM_EVENT_SHUTDOWN, vec![0]);
         let res = vcpu.run_emulation();
         assert!(matches!(res, Ok(VcpuEmulation::Stopped)));
 
         // Other system event
-        *(EMULATE_RES.lock().unwrap()) = EmulationCase::SystemEvent(0, 0);
+        *(EMULATE_RES.lock().unwrap()) = EmulationCase::SystemEvent(0, vec![0]);
         let res = vcpu.run_emulation();
         assert!(matches!(res, Err(VcpuError::VcpuUnhandledKvmExit)));
 

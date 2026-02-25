@@ -24,6 +24,7 @@ use dbs_legacy_devices::ConsoleHandler;
 use dbs_pci::CAPABILITY_BAR_SIZE;
 use dbs_utils::epoll_manager::EpollManager;
 use kvm_ioctls::VmFd;
+#[cfg(feature = "host-device")]
 use virtio_queue::QueueSync;
 
 #[cfg(feature = "dbs-virtio-devices")]
@@ -41,6 +42,7 @@ use dbs_virtio_devices::{
 
 #[cfg(feature = "host-device")]
 use dbs_pci::VfioPciDevice;
+#[cfg(feature = "host-device")]
 use dbs_pci::VirtioPciDevice;
 #[cfg(all(feature = "hotplug", feature = "dbs-upcall"))]
 use dbs_upcall::{
@@ -193,9 +195,11 @@ pub enum DeviceMgrError {
     /// PCI system manager error
     #[error("Pci system manager error")]
     PciSystemManager,
+    #[cfg(feature = "host-device")]
     /// Dragonball pci system error
     #[error("pci error: {0:?}")]
     PciError(#[source] dbs_pci::Error),
+    #[cfg(feature = "host-device")]
     /// Virtio Pci system error
     #[error("virtio pci error: {0:?}")]
     VirtioPciError(#[source] dbs_pci::VirtioPciDeviceError),
@@ -315,6 +319,7 @@ pub struct DeviceOpContext {
     virtio_devices: Vec<Arc<dyn DeviceIo>>,
     #[cfg(feature = "host-device")]
     vfio_manager: Option<Arc<Mutex<VfioDeviceMgr>>>,
+    #[cfg(feature = "host-device")]
     pci_system_manager: Arc<Mutex<PciSystemManager>>,
     vm_config: Option<VmConfigInfo>,
     shared_info: Arc<RwLock<InstanceInfo>>,
@@ -366,6 +371,7 @@ impl DeviceOpContext {
             shared_info,
             #[cfg(feature = "host-device")]
             vfio_manager: None,
+            #[cfg(feature = "host-device")]
             pci_system_manager: device_mgr.pci_system_manager.clone(),
         }
     }
@@ -659,6 +665,7 @@ pub struct DeviceManager {
     vhost_user_net_manager: VhostUserNetDeviceMgr,
     #[cfg(feature = "host-device")]
     pub(crate) vfio_manager: Arc<Mutex<VfioDeviceMgr>>,
+    #[cfg(feature = "host-device")]
     pub(crate) pci_system_manager: Arc<Mutex<PciSystemManager>>,
 }
 
@@ -674,16 +681,21 @@ impl DeviceManager {
         let irq_manager = Arc::new(KvmIrqManager::new(vm_fd.clone()));
         let io_manager = Arc::new(ArcSwap::new(Arc::new(IoManager::new())));
         let io_lock = Arc::new(Mutex::new(()));
-        let io_context = DeviceManagerContext::new(io_manager.clone(), io_lock.clone());
-        let mut mgr = PciSystemManager::new(irq_manager.clone(), io_context, res_manager.clone())?;
 
-        let requirements = mgr.resource_requirements();
-        let resources = res_manager
-            .allocate_device_resources(&requirements, USE_SHARED_IRQ)
-            .map_err(DeviceMgrError::ResourceError)?;
-        mgr.activate(resources)?;
+        #[cfg(feature = "host-device")]
+        let pci_system_manager = {
+            let io_context = DeviceManagerContext::new(io_manager.clone(), io_lock.clone());
+            let mut mgr =
+                PciSystemManager::new(irq_manager.clone(), io_context, res_manager.clone())?;
 
-        let pci_system_manager = Arc::new(Mutex::new(mgr));
+            let requirements = mgr.resource_requirements();
+            let resources = res_manager
+                .allocate_device_resources(&requirements, USE_SHARED_IRQ)
+                .map_err(DeviceMgrError::ResourceError)?;
+            mgr.activate(resources)?;
+
+            Arc::new(Mutex::new(mgr))
+        };
 
         Ok(DeviceManager {
             io_manager,
@@ -720,6 +732,7 @@ impl DeviceManager {
                 pci_system_manager.clone(),
                 logger,
             ))),
+            #[cfg(feature = "host-device")]
             pci_system_manager,
         })
     }
@@ -1572,19 +1585,23 @@ mod tests {
             let irq_manager = Arc::new(KvmIrqManager::new(vm_fd.clone()));
             let io_manager = Arc::new(ArcSwap::new(Arc::new(IoManager::new())));
             let io_lock = Arc::new(Mutex::new(()));
-            let io_context = DeviceManagerContext::new(io_manager.clone(), io_lock.clone());
-            let mut mgr =
-                PciSystemManager::new(irq_manager.clone(), io_context, res_manager.clone())
+
+            #[cfg(feature = "host-device")]
+            let pci_system_manager = {
+                let io_context = DeviceManagerContext::new(io_manager.clone(), io_lock.clone());
+                let mut mgr =
+                    PciSystemManager::new(irq_manager.clone(), io_context, res_manager.clone())
+                        .unwrap();
+
+                let requirements = mgr.resource_requirements();
+                let resources = res_manager
+                    .allocate_device_resources(&requirements, USE_SHARED_IRQ)
+                    .map_err(DeviceMgrError::ResourceError)
                     .unwrap();
+                mgr.activate(resources).unwrap();
 
-            let requirements = mgr.resource_requirements();
-            let resources = res_manager
-                .allocate_device_resources(&requirements, USE_SHARED_IRQ)
-                .map_err(DeviceMgrError::ResourceError)
-                .unwrap();
-            mgr.activate(resources).unwrap();
-
-            let pci_system_manager = Arc::new(Mutex::new(mgr));
+                Arc::new(Mutex::new(mgr))
+            };
 
             DeviceManager {
                 vm_fd: Arc::clone(&vm_fd),
@@ -1619,6 +1636,7 @@ mod tests {
                     pci_system_manager.clone(),
                     &logger,
                 ))),
+                #[cfg(feature = "host-device")]
                 pci_system_manager,
 
                 logger,

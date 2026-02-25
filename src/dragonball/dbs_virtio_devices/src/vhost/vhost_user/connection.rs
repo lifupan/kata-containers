@@ -312,7 +312,12 @@ impl Endpoint {
 
         // 7. trigger the backend state machine.
         for queue_index in 0..queue_num {
-            master.set_vring_call(queue_index, config.intr_evts[queue_index])?;
+            // SAFETY: Both EventFd types (vmm-sys-util 0.15.x and 0.11.x) have identical
+            // memory layouts. Transmute bridges two semver-incompatible versions.
+            master.set_vring_call(
+                queue_index,
+                unsafe { std::mem::transmute(config.intr_evts[queue_index]) },
+            )?;
         }
         info!("{}: set_vring_call()", self.name);
 
@@ -394,9 +399,11 @@ impl Endpoint {
             );
         }
         for queue_index in 0..queue_num {
+            // SAFETY: Both EventFd types (vmm-sys-util 0.15.x and 0.11.x) have identical
+            // memory layouts. Transmute bridges two semver-incompatible versions.
             master.set_vring_kick(
                 queue_index,
-                &config.virtio_config.queues[queue_index].eventfd,
+                unsafe { std::mem::transmute(&config.virtio_config.queues[queue_index].eventfd) },
             )?;
             info!(
                 "{}: set_vring_kick(idx: {}, fd: {})",
@@ -411,7 +418,12 @@ impl Endpoint {
             } else {
                 queue_index
             };
-            master.set_vring_call(queue_index, config.intr_evts[intr_index])?;
+            // SAFETY: Both EventFd types (vmm-sys-util 0.15.x and 0.11.x) have identical
+            // memory layouts. Transmute bridges two semver-incompatible versions.
+            master.set_vring_call(
+                queue_index,
+                unsafe { std::mem::transmute(config.intr_evts[intr_index]) },
+            )?;
             info!(
                 "{}: set_vring_call(idx: {}, fd: {})",
                 self.name,
