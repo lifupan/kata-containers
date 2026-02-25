@@ -17,7 +17,7 @@ use dbs_utils::{
 use log::{debug, error, info, warn};
 use virtio_bindings::bindings::virtio_blk::*;
 use virtio_queue::{Queue, QueueOwnedT, QueueT};
-use vm_memory::{Bytes, GuestAddress, GuestMemoryBackend, GuestMemoryRegion, GuestRegionMmap};
+use vm_memory::{Bytes, GuestAddress, GuestMemory, GuestMemoryRegion, GuestRegionMmap};
 use vmm_sys_util::eventfd::EventFd;
 
 use crate::{
@@ -173,7 +173,7 @@ impl<AS: DbsGuestAddressSpace, Q: QueueT> InnerBlockEpollHandler<AS, Q> {
         false
     }
 
-    fn process_request<M: GuestMemoryBackend>(
+    fn process_request<M: GuestMemory>(
         req: &Request,
         data_descs: &[IoDataDesc],
         disk_image: &mut Box<dyn Ufile>,
@@ -234,7 +234,7 @@ impl<AS: DbsGuestAddressSpace, Q: QueueT> InnerBlockEpollHandler<AS, Q> {
 
     // TODO: We should hide the logic of this function inside the Ufile implementation,
     // instead of appearing here.
-    fn process_aio_request<M: GuestMemoryBackend>(
+    fn process_aio_request<M: GuestMemory>(
         req: &Request,
         data_descs: &[IoDataDesc],
         iovecs: &mut Vec<IoDataDesc>,

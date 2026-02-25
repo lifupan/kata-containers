@@ -4,7 +4,7 @@
 use arch_gen::x86::bootparam::{__u32, __u64};
 use vm_memory::bytes::Bytes;
 use vm_memory::guest_memory::GuestAddress;
-use vm_memory::{ByteValued, GuestMemoryBackend};
+use vm_memory::{ByteValued, GuestMemory};
 
 use super::layout;
 

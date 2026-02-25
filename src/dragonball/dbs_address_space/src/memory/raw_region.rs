@@ -221,7 +221,7 @@ mod tests {
     use super::*;
     use crate::{GuestMemoryHybrid, GuestRegionHybrid};
     use std::sync::Arc;
-    use vm_memory::{GuestAddressSpace, GuestMemoryBackend, VolatileMemory};
+    use vm_memory::{GuestAddressSpace, GuestMemory, VolatileMemory};
 
     /*
     use crate::bitmap::tests::test_guest_memory_and_region;

@@ -18,7 +18,7 @@
 use std::ops::{Deref, DerefMut};
 
 use virtio_queue::{Descriptor, DescriptorChain};
-use vm_memory::{Address, GuestMemoryBackend};
+use vm_memory::{Address, GuestMemory};
 
 use super::defs;
 use super::{Result, VsockError};
@@ -110,7 +110,7 @@ pub struct HdrWrapper {
 impl HdrWrapper {
     /// Create the wrapper from a virtio queue descriptor (a pointer), performing some sanity checks
     /// in the process.
-    pub fn from_virtq_desc<M: GuestMemoryBackend>(desc: &Descriptor, mem: &M) -> Result<Self> {
+    pub fn from_virtq_desc<M: GuestMemory>(desc: &Descriptor, mem: &M) -> Result<Self> {
         if desc.len() < VSOCK_PKT_HDR_SIZE as u32 {
             return Err(VsockError::HdrDescTooSmall(desc.len()));
         }
@@ -191,7 +191,7 @@ pub struct BufWrapper {
 impl BufWrapper {
     /// Create the data wrapper from a virtq descriptor.
     /// Add offset and size, to support different forms of descriptor.
-    pub fn from_virtq_desc<M: GuestMemoryBackend>(
+    pub fn from_virtq_desc<M: GuestMemory>(
         desc: &Descriptor,
         mem: &M,
         offset: usize,
@@ -252,7 +252,7 @@ impl VsockPacket {
     /// The chain head is expected to hold valid packet header data. A following
     /// packet buffer descriptor can optionally end the chain. Bounds and
     /// pointer checks are performed when creating the wrapper.
-    pub fn from_tx_virtq_head<M: GuestMemoryBackend>(
+    pub fn from_tx_virtq_head<M: GuestMemory>(
         desc_chain: &mut DescriptorChain<&M>,
     ) -> Result<Self> {
         let desc = desc_chain.next().ok_or(VsockError::BufDescMissing)?;
@@ -324,7 +324,7 @@ impl VsockPacket {
     /// There must be two descriptors in the chain, both writable: a header
     /// descriptor and a data descriptor. Bounds and pointer checks are
     /// performed when creating the wrapper.
-    pub fn from_rx_virtq_head<M: GuestMemoryBackend>(
+    pub fn from_rx_virtq_head<M: GuestMemory>(
         desc_chain: &mut DescriptorChain<&M>,
     ) -> Result<Self> {
         let desc = desc_chain.next().ok_or(VsockError::BufDescMissing)?;

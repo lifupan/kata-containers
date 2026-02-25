@@ -9,7 +9,7 @@ use std::result;
 use log::error;
 use virtio_bindings::bindings::virtio_blk::*;
 use virtio_queue::{Descriptor, DescriptorChain};
-use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryBackend, GuestMemoryError};
+use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError};
 
 use crate::{
     block::{ufile::Ufile, SECTOR_SHIFT, SECTOR_SIZE},
@@ -84,7 +84,7 @@ impl RequestHeader {
     /// When running on a big endian platform, this code should not compile, and support
     /// for explicit little endian reads is required.
     #[cfg(target_endian = "little")]
-    fn read_from<M: GuestMemoryBackend + ?Sized>(memory: &M, addr: GuestAddress) -> Result<Self> {
+    fn read_from<M: GuestMemory + ?Sized>(memory: &M, addr: GuestAddress) -> Result<Self> {
         memory.read_obj(addr).map_err(Error::GuestMemory)
     }
 }
@@ -117,7 +117,7 @@ impl Request {
     ) -> Result<Self>
     where
         M: Deref,
-        M::Target: GuestMemoryBackend,
+        M::Target: GuestMemory,
     {
         let desc = desc_chain.next().ok_or(Error::DescriptorChainTooShort)?;
         // The head contains the request type which MUST be readable.
@@ -217,7 +217,7 @@ impl Request {
         Ok(())
     }
 
-    pub(crate) fn execute<M: GuestMemoryBackend + ?Sized>(
+    pub(crate) fn execute<M: GuestMemory + ?Sized>(
         &self,
         disk: &mut Box<dyn Ufile>,
         mem: &M,
@@ -278,7 +278,7 @@ impl Request {
         Ok(())
     }
 
-    pub(crate) fn update_status<M: GuestMemoryBackend + ?Sized>(&self, mem: &M, status: u32) {
+    pub(crate) fn update_status<M: GuestMemory + ?Sized>(&self, mem: &M, status: u32) {
         // Safe to unwrap because we have validated request.status_addr in parse()
         mem.write_obj(status as u8, self.status_addr).unwrap();
     }

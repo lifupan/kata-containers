@@ -8,7 +8,7 @@ use vm_memory::bitmap::{Bitmap, BS};
 use vm_memory::mmap::NewBitmap;
 use vm_memory::region::GuestRegionCollectionError as Error;
 use vm_memory::{
-    guest_memory, AtomicAccess, Bytes, FileOffset, GuestAddress, GuestMemoryBackend,
+    guest_memory, AtomicAccess, Bytes, FileOffset, GuestAddress, GuestMemory,
     GuestMemoryRegion, GuestRegionMmap, GuestUsize, MemoryRegionAddress, ReadVolatile,
     VolatileSlice, WriteVolatile,
 };
@@ -309,7 +309,7 @@ impl<B: Bitmap> GuestMemoryHybrid<B> {
     }
 }
 
-impl<B: Bitmap + 'static> GuestMemoryBackend for GuestMemoryHybrid<B> {
+impl<B: Bitmap + 'static> GuestMemory for GuestMemoryHybrid<B> {
     type R = GuestRegionHybrid<B>;
 
     fn find_region(&self, addr: GuestAddress) -> Option<&GuestRegionHybrid<B>> {

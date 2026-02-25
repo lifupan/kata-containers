@@ -16,7 +16,7 @@ use std::result;
 use std::slice;
 
 use super::mpspec;
-use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryBackend};
+use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory};
 
 // This is a workaround to the Rust enforcement specifying that any implementation of a foreign
 // trait (in this case `ByteValued`) where:
@@ -174,7 +174,7 @@ fn compute_mp_size(num_cpus: u8) -> usize {
 }
 
 /// Performs setup of the MP table for the given `num_cpus`
-pub fn setup_mptable<M: GuestMemoryBackend>(
+pub fn setup_mptable<M: GuestMemory>(
     mem: &M,
     boot_cpus: u8,
     max_cpus: u8,

@@ -4,7 +4,7 @@
 //! VM boot related constants and utilities for `aarch64` architecture.
 
 use vm_fdt::Error as VmFdtError;
-use vm_memory::{Address, GuestAddress, GuestMemoryBackend, GuestMemoryError};
+use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryError};
 
 /// Magic addresses externally used to lay out aarch64 VMs.
 pub mod layout;
@@ -41,7 +41,7 @@ pub fn get_kernel_start() -> u64 {
 }
 
 /// Auxiliary function to get the address where the device tree blob is loaded.
-pub fn get_fdt_addr<M: GuestMemoryBackend>(mem: &M) -> u64 {
+pub fn get_fdt_addr<M: GuestMemory>(mem: &M) -> u64 {
     // If the memory allocated is smaller than the size allocated for the FDT,
     // we return the start of the DRAM so that
     // we allow the code to try and load the FDT.
@@ -54,7 +54,7 @@ pub fn get_fdt_addr<M: GuestMemoryBackend>(mem: &M) -> u64 {
 }
 
 /// Returns the memory address where the initrd could be loaded.
-pub fn initrd_load_addr<M: GuestMemoryBackend>(guest_mem: &M, initrd_size: u64) -> super::Result<u64> {
+pub fn initrd_load_addr<M: GuestMemory>(guest_mem: &M, initrd_size: u64) -> super::Result<u64> {
     let round_to_pagesize = |size| (size + (PAGE_SIZE as u64 - 1)) & !(PAGE_SIZE as u64 - 1);
     match GuestAddress(get_fdt_addr(guest_mem)).checked_sub(round_to_pagesize(initrd_size)) {
         Some(offset) => {
