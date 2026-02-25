@@ -18,7 +18,7 @@ use dbs_arch::{DeviceInfoForFDT, DeviceType};
 
 use vm_fdt::FdtWriter;
 use vm_memory::GuestMemoryRegion;
-use vm_memory::{Address, Bytes, GuestAddress, GuestMemory};
+use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryBackend};
 
 use super::fdt_utils::*;
 use super::Error;
@@ -132,7 +132,7 @@ fn create_cpu_nodes(fdt: &mut FdtWriter, fdt_vm_info: &FdtVmInfo) -> Result<()> 
     Ok(())
 }
 
-fn create_memory_node<M: GuestMemory>(fdt: &mut FdtWriter, guest_mem: &M) -> Result<()> {
+fn create_memory_node<M: GuestMemoryBackend>(fdt: &mut FdtWriter, guest_mem: &M) -> Result<()> {
     // See https://github.com/torvalds/linux/blob/v5.9/Documentation/devicetree/booting-without-of.rst
     for region in guest_mem.iter() {
         let memory_name = format!("memory@{:x}", region.start_addr().raw_value());

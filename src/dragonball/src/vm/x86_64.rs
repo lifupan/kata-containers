@@ -18,7 +18,7 @@ use kvm_bindings::{kvm_irqchip, kvm_pit_config, kvm_pit_state2, KVM_PIT_SPEAKER_
 use linux_loader::cmdline::Cmdline;
 use linux_loader::configurator::{linux::LinuxBootConfigurator, BootConfigurator, BootParams};
 use slog::info;
-use vm_memory::{Address, GuestAddress, GuestAddressSpace, GuestMemory};
+use vm_memory::{Address, GuestAddress, GuestAddressSpace, GuestMemoryBackend};
 
 use crate::address_space_manager::{GuestAddressSpaceImpl, GuestMemoryImpl};
 use crate::error::{Error, Result, StartMicroVmError};
@@ -41,7 +41,7 @@ use crate::vm::{Vm, VmError};
 /// * `max_cpus` - Max number of virtual CPUs the guest will have.
 /// * `rsv_mem_bytes` - Reserve memory from microVM..
 #[allow(clippy::too_many_arguments)]
-fn configure_system<M: GuestMemory>(
+fn configure_system<M: GuestMemoryBackend>(
     guest_mem: &M,
     address_space: Option<&AddressSpace>,
     cmdline_addr: GuestAddress,

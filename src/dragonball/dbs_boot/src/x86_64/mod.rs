@@ -9,7 +9,7 @@
 //! VM boot related constants and utilities for `x86_64` architecture.
 
 use dbs_arch::gdt::gdt_entry;
-use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryRegion};
+use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryBackend, GuestMemoryRegion};
 
 use self::layout::{BOOT_GDT_ADDRESS, BOOT_GDT_MAX, BOOT_IDT_ADDRESS};
 use super::Result;
@@ -89,7 +89,7 @@ pub enum Error {
 /// Initialize the 1:1 identity mapping table for guest memory range [0..1G).
 ///
 /// Also, return the pml4 address for sregs setting and AP boot
-pub fn setup_identity_mapping<M: GuestMemory>(mem: &M) -> Result<GuestAddress> {
+pub fn setup_identity_mapping<M: GuestMemoryBackend>(mem: &M) -> Result<GuestAddress> {
     // Puts PML4 right after zero page but aligned to 4k.
     let boot_pml4_addr = GuestAddress(layout::PML4_START);
     let boot_pdpte_addr = GuestAddress(layout::PDPTE_START);
@@ -127,7 +127,7 @@ pub fn get_descriptor_config_info() -> ([u64; BOOT_GDT_MAX], u64, u64) {
 }
 
 /// Returns the memory address where the initrd could be loaded.
-pub fn initrd_load_addr<M: GuestMemory>(guest_mem: &M, initrd_size: u64) -> Result<u64> {
+pub fn initrd_load_addr<M: GuestMemoryBackend>(guest_mem: &M, initrd_size: u64) -> Result<u64> {
     let lowmem_size = guest_mem
         .find_region(GuestAddress(0))
         .ok_or(Error::InitrdAddress)

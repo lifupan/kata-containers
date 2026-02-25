@@ -27,7 +27,7 @@ use kvm_ioctls::VmFd;
 use log::{error, warn};
 use virtio_queue::{DescriptorChain, QueueOwnedT, QueueSync, QueueT};
 use vm_memory::{
-    Address, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryRegion, GuestRegionMmap,
+    Address, GuestAddress, GuestAddressSpace, GuestMemoryBackend, GuestMemoryRegion, GuestRegionMmap,
     GuestUsize,
 };
 use vmm_sys_util::eventfd::{EventFd, EFD_NONBLOCK};
@@ -104,7 +104,7 @@ impl<Q: QueueT> VirtioQueueConfig<Q> {
     pub fn get_next_descriptor<M>(&mut self, mem: M) -> Result<Option<DescriptorChain<M>>>
     where
         M: Deref + Clone,
-        M::Target: GuestMemory + Sized,
+        M::Target: GuestMemoryBackend + Sized,
     {
         let mut guard = self.queue.lock();
         let mut iter = guard.iter(mem)?;
@@ -113,7 +113,7 @@ impl<Q: QueueT> VirtioQueueConfig<Q> {
 
     /// Put a used descriptor into the used ring.
     #[inline]
-    pub fn add_used<M: GuestMemory>(&mut self, mem: &M, desc_index: u16, len: u32) {
+    pub fn add_used<M: GuestMemoryBackend>(&mut self, mem: &M, desc_index: u16, len: u32) {
         self.queue
             .add_used(mem, desc_index, len)
             .unwrap_or_else(|_| panic!("Failed to add used. index: {}", desc_index))

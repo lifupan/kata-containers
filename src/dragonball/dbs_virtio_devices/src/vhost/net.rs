@@ -7,12 +7,12 @@ use virtio_bindings::bindings::virtio_net::{
     virtio_net_ctrl_hdr, virtio_net_ctrl_mq, VIRTIO_NET_CTRL_MQ_VQ_PAIRS_SET,
 };
 use virtio_queue::{Descriptor, DescriptorChain};
-use vm_memory::{Bytes, GuestMemory};
+use vm_memory::{Bytes, GuestMemoryBackend};
 
 use crate::{DbsGuestAddressSpace, Error as VirtioError, Result as VirtioResult};
 
 pub(crate) trait FromNetCtrl<T> {
-    fn from_net_ctrl_st<M: GuestMemory>(mem: &M, desc: &Descriptor) -> VirtioResult<T> {
+    fn from_net_ctrl_st<M: GuestMemoryBackend>(mem: &M, desc: &Descriptor) -> VirtioResult<T> {
         let mut buf = vec![0u8; std::mem::size_of::<T>()];
         match mem.read_slice(&mut buf, desc.addr()) {
             Ok(_) => unsafe { Ok(std::ptr::read_volatile(&buf[..] as *const _ as *const T)) },
