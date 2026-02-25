@@ -205,7 +205,7 @@ pub fn setup_mptable<M: GuestMemoryBackend>(
         return Err(Error::AddressOverflow);
     }
 
-    mem.read_from(base_mp, &mut io::repeat(0), mp_size)
+    mem.read_volatile_from(base_mp, &mut io::repeat(0), mp_size)
         .map_err(|_| Error::Clear)?;
 
     {

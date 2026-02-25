@@ -12,7 +12,7 @@ use std::mem;
 
 use kvm_bindings::{kvm_fpu, kvm_msr_entry, kvm_regs, kvm_sregs, Msrs};
 use kvm_ioctls::VcpuFd;
-use vm_memory::{Address, Bytes, GuestAddress, GuestMemory};
+use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryBackend};
 
 use super::gdt::kvm_segment_from_gdt;
 use super::msr;
@@ -128,7 +128,7 @@ pub fn setup_regs(vcpu: &VcpuFd, boot_ip: u64, rsp: u64, rbp: u64, rsi: u64) -> 
 /// * `gdt_table` - Content of the global descriptor table.
 /// * `gdt_addr` - Address of the global descriptor table.
 /// * `idt_addr` - Address of the interrupt descriptor table.
-pub fn setup_sregs<M: GuestMemory>(
+pub fn setup_sregs<M: GuestMemoryBackend>(
     mem: &M,
     vcpu: &VcpuFd,
     pgtable_addr: GuestAddress,
@@ -141,7 +141,7 @@ pub fn setup_sregs<M: GuestMemory>(
     vcpu.set_sregs(&sregs).map_err(Error::SetStatusRegisters)
 }
 
-fn configure_segments_and_sregs<M: GuestMemory>(
+fn configure_segments_and_sregs<M: GuestMemoryBackend>(
     mem: &M,
     sregs: &mut kvm_sregs,
     pgtable_addr: GuestAddress,
@@ -181,7 +181,7 @@ fn configure_segments_and_sregs<M: GuestMemory>(
     Ok(())
 }
 
-fn write_gdt_table<M: GuestMemory>(gdt_table: &[u64], gdt_addr: u64, guest_mem: &M) -> Result<()> {
+fn write_gdt_table<M: GuestMemoryBackend>(gdt_table: &[u64], gdt_addr: u64, guest_mem: &M) -> Result<()> {
     let boot_gdt_addr = GuestAddress(gdt_addr);
     for (index, entry) in gdt_table.iter().enumerate() {
         let addr = guest_mem
@@ -194,7 +194,7 @@ fn write_gdt_table<M: GuestMemory>(gdt_table: &[u64], gdt_addr: u64, guest_mem: 
     Ok(())
 }
 
-fn write_idt_value<M: GuestMemory>(idt_table: u64, idt_addr: u64, guest_mem: &M) -> Result<()> {
+fn write_idt_value<M: GuestMemoryBackend>(idt_table: u64, idt_addr: u64, guest_mem: &M) -> Result<()> {
     let boot_idt_addr = GuestAddress(idt_addr);
     guest_mem
         .write_obj(idt_table, boot_idt_addr)
