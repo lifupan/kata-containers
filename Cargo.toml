@@ -63,7 +63,7 @@ vfio-ioctls = "0.5.2"
 virtio-bindings = "0.2.7"
 virtio-queue = "0.17.0"
 vm-fdt = "0.3.0"
-vm-memory = "0.18.0"
+vm-memory = "=0.17.1"
 vm-superio = "0.8.1"
 vmm-sys-util = "0.15.0"
 
@@ -138,6 +138,3 @@ tracing = "0.1.41"
 tracing-opentelemetry = "0.18.0"
 ttrpc = "0.8.4"
 url = "2.5.4"
-
-[patch.crates-io]
-vhost = { path = "patches/vhost" }
