@@ -29,7 +29,7 @@ use nydus_api::ConfigV2;
 use nydus_rafs::blobfs::{BlobFs, Config as BlobfsConfig};
 use nydus_rafs::{fs::Rafs, RafsIoRead};
 use rlimit::Resource;
-use virtio_bindings::bindings::virtio_blk::VIRTIO_F_VERSION_1;
+use virtio_bindings::bindings::virtio_config::VIRTIO_F_VERSION_1;
 use virtio_queue::QueueT;
 use vm_memory::{
     FileOffset, GuestAddress, GuestAddressSpace, GuestRegionMmap, GuestUsize, MmapRegion,
@@ -231,7 +231,7 @@ impl<AS: GuestAddressSpace> VirtioFs<AS> {
     fn get_timeout(&self) -> Duration {
         match self.cache_policy {
             CachePolicy::Always => Duration::from_secs(CACHE_ALWAYS_TIMEOUT),
-            CachePolicy::Never => Duration::from_secs(CACHE_NONE_TIMEOUT),
+            CachePolicy::Never | CachePolicy::Metadata => Duration::from_secs(CACHE_NONE_TIMEOUT),
             CachePolicy::Auto => Duration::from_secs(CACHE_AUTO_TIMEOUT),
         }
     }
@@ -612,7 +612,7 @@ impl<AS: GuestAddressSpace> VirtioFs<AS> {
 
         let region = Arc::new(
             GuestRegionMmap::new(mmap_region, GuestAddress(guest_addr))
-                .map_err(Error::InsertMmap)?,
+                .ok_or_else(|| Error::InternalError)?,
         );
         self.handler.insert_region(region.clone())?;
 

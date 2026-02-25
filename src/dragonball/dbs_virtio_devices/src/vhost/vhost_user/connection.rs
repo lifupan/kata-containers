@@ -10,10 +10,11 @@ use dbs_utils::epoll_manager::{EventOps, EventSet, Events};
 use log::*;
 use vhost_rs::vhost_user::message::{VhostUserProtocolFeatures, VhostUserVringAddrFlags};
 use vhost_rs::vhost_user::{
-    Error as VhostUserError, Listener as VhostUserListener, Master, VhostUserMaster,
+    Error as VhostUserError, Frontend as Master, Listener as VhostUserListener,
+    VhostUserFrontend as VhostUserMaster,
 };
 use vhost_rs::{Error as VhostError, VhostBackend, VhostUserMemoryRegionInfo, VringConfigData};
-use virtio_bindings::bindings::virtio_net::VIRTIO_F_RING_PACKED;
+use virtio_bindings::bindings::virtio_config::VIRTIO_F_RING_PACKED;
 use virtio_queue::QueueT;
 use vm_memory::{
     Address, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryRegion, MemoryRegionAddress,
@@ -286,9 +287,9 @@ impl Endpoint {
         );
 
         // Setup slave channel if SLAVE_REQ protocol feature is set
-        if protocol_features.contains(VhostUserProtocolFeatures::SLAVE_REQ) {
+        if protocol_features.contains(VhostUserProtocolFeatures::BACKEND_REQ) {
             match config.slave_req_fd {
-                Some(fd) => master.set_slave_request_fd(&fd)?,
+                Some(fd) => master.set_backend_request_fd(&fd)?,
                 None => {
                     error!(
                         "{}: Protocol feature SLAVE_REQ is set but not slave channel fd",
