@@ -2423,7 +2423,7 @@ version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "de72cb02c55ecffcf75fe78295926f872eb6eb0a58d629c58a8c324dc26380f6"
 dependencies = [
- "vm-memory 0.17.1",
+ "vm-memory 0.16.2",
 ]
 
 [[package]]
@@ -5504,12 +5504,11 @@ dependencies = [
 [[package]]
 name = "vhost"
 version = "0.15.0"
-source = "git+https://github.com/rust-vmm/vhost.git#e01ece1a607b4f162b085d3b78df7f7efb768251"
 dependencies = [
  "bitflags 2.10.0",
  "libc",
  "uuid 1.18.1",
- "vm-memory 0.17.1",
+ "vm-memory 0.18.0",
  "vmm-sys-util 0.15.0",
 ]
 
@@ -5583,7 +5582,7 @@ dependencies = [
  "libc",
  "log",
  "virtio-bindings 0.2.7",
- "vm-memory 0.17.1",
+ "vm-memory 0.17.2",
  "vmm-sys-util 0.15.0",
 ]
 
@@ -5616,13 +5615,11 @@ dependencies = [
 
 [[package]]
 name = "vm-memory"
-version = "0.17.1"
+version = "0.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f39348a049689cabd3377cdd9182bf526ec76a6f823b79903896452e9d7a7380"
+checksum = "e201ed63fdaba7bdafd07176f2060ffa6949aa05559acbc3f5189824bb285428"
 dependencies = [
- "libc",
- "thiserror 2.0.18",
- "winapi",
+ "vm-memory 0.18.0",
 ]
 
 [[package]]
