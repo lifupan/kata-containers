@@ -138,3 +138,10 @@ tracing = "0.1.41"
 tracing-opentelemetry = "0.18.0"
 ttrpc = "0.8.4"
 url = "2.5.4"
+
+[patch.crates-io]
+nydus-api = { path = "nydus-patched/api" }
+nydus-rafs = { path = "nydus-patched/rafs" }
+nydus-storage = { path = "nydus-patched/storage" }
+nydus-utils = { path = "nydus-patched/utils" }
+fuse-backend-rs = { git = "https://github.com/lifupan/fuse-backend-rs.git", branch = "master" }

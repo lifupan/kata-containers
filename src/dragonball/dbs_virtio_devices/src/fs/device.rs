@@ -528,7 +528,7 @@ impl<AS: GuestAddressSpace> VirtioFs<AS> {
         };
         let rootfs = match self.fs.get_rootfs(mountpoint) {
             Ok(fs) => match fs {
-                Some(f) => f,
+                Some((f, _)) => f,
                 None => {
                     return Err(FsError::BackendFs(format!(
                         "rafs get_rootfs() failed: mountpoint {mountpoint} not mounted"
