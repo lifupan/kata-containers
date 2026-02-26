@@ -392,7 +392,11 @@ impl Vcpu {
             // only reading `vcpu.fd` which does not change for the lifetime of the `Vcpu`.
             unsafe {
                 let _ = Vcpu::run_on_thread_local(|vcpu| {
-                    vcpu.fd.set_kvm_immediate_exit(1);
+                    // SAFETY: set_kvm_immediate_exit modifies the kvm_run mmap area which is
+                    // safe to write from signal handler context. The Arc is only used from
+                    // this thread and the signal handler on this same thread.
+                    let fd = &mut *(Arc::as_ptr(&vcpu.fd) as *mut VcpuFd);
+                    fd.set_kvm_immediate_exit(1);
                     fence(Ordering::Release);
                 });
             }
@@ -436,7 +440,7 @@ impl Vcpu {
 
     /// Extract the vcpu running logic for test mocking.
     #[cfg(not(test))]
-    pub fn emulate(fd: &VcpuFd) -> std::result::Result<VcpuExit<'_>, kvm_ioctls::Error> {
+    pub fn emulate(fd: &mut VcpuFd) -> std::result::Result<VcpuExit<'_>, kvm_ioctls::Error> {
         fd.run()
     }
 
@@ -444,7 +448,11 @@ impl Vcpu {
     ///
     /// Returns error or enum specifying whether emulation was handled or interrupted.
     fn run_emulation(&mut self) -> Result<VcpuEmulation> {
-        match Vcpu::emulate(&self.fd) {
+        // SAFETY: We need &mut VcpuFd for run() in kvm-ioctls 0.24.0.
+        // This is safe because run_emulation is only called from the vcpu thread,
+        // and no other thread accesses the VcpuFd simultaneously.
+        let fd = unsafe { &mut *(Arc::as_ptr(&self.fd) as *mut VcpuFd) };
+        match Vcpu::emulate(fd) {
             Ok(run) => {
                 match run {
                     #[cfg(target_arch = "x86_64")]
@@ -493,14 +501,14 @@ impl Vcpu {
                     VcpuExit::SystemEvent(event_type, event_flags) => match event_type {
                         KVM_SYSTEM_EVENT_RESET | KVM_SYSTEM_EVENT_SHUTDOWN => {
                             info!(
-                                "Received KVM_SYSTEM_EVENT: type: {event_type}, event: {event_flags}"
+                                "Received KVM_SYSTEM_EVENT: type: {event_type}, event: {event_flags:?}"
                             );
                             Ok(VcpuEmulation::Stopped)
                         }
                         _ => {
                             self.metrics.failures.inc();
                             error!(
-                                "Received KVM_SYSTEM_EVENT signal type: {event_type}, flag: {event_flags}"
+                                "Received KVM_SYSTEM_EVENT signal type: {event_type}, flag: {event_flags:?}"
                             );
                             Err(VcpuError::VcpuUnhandledKvmExit)
                         }
@@ -520,7 +528,9 @@ impl Vcpu {
                 match e.errno() {
                     libc::EAGAIN => Ok(VcpuEmulation::Handled),
                     libc::EINTR => {
-                        self.fd.set_kvm_immediate_exit(0);
+                        // SAFETY: Same vcpu thread context as run_emulation.
+                        let fd = unsafe { &mut *(Arc::as_ptr(&self.fd) as *mut VcpuFd) };
+                        fd.set_kvm_immediate_exit(0);
                         // Notify that this KVM_RUN was interrupted.
                         Ok(VcpuEmulation::Interrupted)
                     }

@@ -122,7 +122,7 @@ pub enum AddressManagerError {
 
     /// Failed to create GuestMemory
     #[error("address manager failed to create guest memory object")]
-    CreateGuestMemory(#[source] vm_memory::GuestMemoryError),
+    CreateGuestMemory(#[source] vm_memory::GuestRegionCollectionError),
 
     /// Failure in initializing guest memory.
     #[error("address manager failed to initialize guest memory")]

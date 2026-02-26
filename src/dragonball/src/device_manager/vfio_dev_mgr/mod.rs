@@ -27,7 +27,7 @@ use dbs_upcall::{DevMgrResponse, UpcallClientResponse};
 use kvm_ioctls::{DeviceFd, VmFd};
 use log::{debug, error};
 use serde_derive::{Deserialize, Serialize};
-use vfio_ioctls::{VfioContainer, VfioDevice};
+use vfio_ioctls::{VfioContainer, VfioDevice, VfioDeviceFd};
 use vm_memory::{
     Address, GuestAddressSpace, GuestMemory, GuestMemoryRegion, GuestRegionMmap,
     MemoryRegionAddress,
@@ -406,9 +406,9 @@ impl VfioDeviceMgr {
         if let Some(vfio_container) = self.vfio_container.as_ref() {
             Ok(vfio_container.clone())
         } else {
-            let kvm_dev_fd = Arc::new(self.get_kvm_dev_fd()?);
+            let kvm_dev_fd = Arc::new(VfioDeviceFd::new_from_kvm(self.get_kvm_dev_fd()?));
             let vfio_container =
-                Arc::new(VfioContainer::new(kvm_dev_fd).map_err(VfioDeviceError::VfioIoctlError)?);
+                Arc::new(VfioContainer::new(Some(kvm_dev_fd)).map_err(VfioDeviceError::VfioIoctlError)?);
             self.vfio_container = Some(vfio_container.clone());
 
             Ok(vfio_container)
