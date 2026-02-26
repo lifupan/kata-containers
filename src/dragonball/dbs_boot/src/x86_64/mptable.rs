@@ -205,7 +205,8 @@ pub fn setup_mptable<M: GuestMemory>(
         return Err(Error::AddressOverflow);
     }
 
-    mem.read_from(base_mp, &mut io::repeat(0), mp_size)
+    let zeros = vec![0u8; mp_size];
+    mem.write_slice(&zeros, base_mp)
         .map_err(|_| Error::Clear)?;
 
     {

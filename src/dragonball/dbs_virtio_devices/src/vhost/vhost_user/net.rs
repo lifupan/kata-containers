@@ -12,7 +12,8 @@ use dbs_utils::epoll_manager::{EpollManager, EventOps, Events, MutEventSubscribe
 use dbs_utils::net::MacAddr;
 use log::{debug, error, info, trace, warn};
 use vhost_rs::vhost_user::{
-    Error as VhostUserError, Master, VhostUserProtocolFeatures, VhostUserVirtioFeatures,
+    Error as VhostUserError, Frontend as Master, VhostUserProtocolFeatures,
+    VhostUserVirtioFeatures,
 };
 use vhost_rs::Error as VhostError;
 use virtio_bindings::bindings::virtio_net::{

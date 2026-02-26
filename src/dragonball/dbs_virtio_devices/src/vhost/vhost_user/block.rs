@@ -25,7 +25,7 @@ use vhost_rs::vhost_user::message::{
     VhostUserConfigFlags, VhostUserProtocolFeatures, VhostUserVirtioFeatures,
     VHOST_USER_CONFIG_OFFSET,
 };
-use vhost_rs::vhost_user::{Master, VhostUserMaster};
+use vhost_rs::vhost_user::{Frontend as Master, VhostUserFrontend as VhostUserMaster};
 use vhost_rs::{Error as VhostError, VhostBackend};
 use virtio_bindings::bindings::virtio_blk::{VIRTIO_BLK_F_MQ, VIRTIO_BLK_F_SEG_MAX};
 use virtio_queue::QueueT;

@@ -118,11 +118,11 @@ pub enum AddressManagerError {
 
     /// Failure in accessing the memory located at some address.
     #[error("address manager failed to access guest memory located at 0x{0:x}")]
-    AccessGuestMemory(u64, #[source] vm_memory::mmap::Error),
+    AccessGuestMemory(u64, #[source] vm_memory::mmap::MmapRegionError),
 
     /// Failed to create GuestMemory
     #[error("address manager failed to create guest memory object")]
-    CreateGuestMemory(#[source] vm_memory::Error),
+    CreateGuestMemory(#[source] vm_memory::GuestRegionCollectionError),
 
     /// Failure in initializing guest memory.
     #[error("address manager failed to initialize guest memory")]
@@ -489,7 +489,7 @@ impl AddressSpaceMgr {
         }
 
         let reg = GuestRegionImpl::new(mmap_reg, region.start_addr())
-            .map_err(AddressManagerError::CreateGuestMemory)?;
+            .ok_or_else(|| AddressManagerError::GuestMemoryNotInitialized)?;
         Ok(Arc::new(reg))
     }
 
