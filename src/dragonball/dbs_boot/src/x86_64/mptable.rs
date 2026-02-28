@@ -205,7 +205,7 @@ pub fn setup_mptable<M: GuestMemory>(
         return Err(Error::AddressOverflow);
     }
 
-    mem.read_from(base_mp, &mut io::repeat(0), mp_size)
+    mem.write_slice(&vec![0u8; mp_size], base_mp)
         .map_err(|_| Error::Clear)?;
 
     {
@@ -452,23 +452,11 @@ mod tests {
         let mpc_offset = GuestAddress(u64::from(mpf_intel.0.physptr));
         let mpc_table: MpcTableWrapper = mem.read_obj(mpc_offset).unwrap();
 
-        struct Sum(u8);
-        impl io::Write for Sum {
-            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-                for v in buf.iter() {
-                    self.0 = self.0.wrapping_add(*v);
-                }
-                Ok(buf.len())
-            }
-            fn flush(&mut self) -> io::Result<()> {
-                Ok(())
-            }
-        }
-
-        let mut sum = Sum(0);
-        mem.write_to(mpc_offset, &mut sum, mpc_table.0.length as usize)
-            .unwrap();
-        assert_eq!(sum.0, 0);
+        let length = mpc_table.0.length as usize;
+        let mut buf = vec![0u8; length];
+        mem.read_slice(&mut buf, mpc_offset).unwrap();
+        let sum: u8 = buf.iter().fold(0u8, |acc, &v| acc.wrapping_add(v));
+        assert_eq!(sum, 0);
     }
 
     #[test]
