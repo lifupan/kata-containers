@@ -203,6 +203,7 @@ impl<B: Bitmap> GuestMemoryRegion for GuestRegionRaw<B> {
                 (self.addr as usize + offset) as *mut _,
                 count,
                 self.bitmap.slice_at(offset),
+                None,
             )
         })
     }
@@ -355,7 +356,7 @@ mod tests {
             unsafe { GuestRegionRaw::<()>::new(GuestAddress(0x10_0000), &mut buf as *mut _, 1024) };
 
         let s = m.get_slice(MemoryRegionAddress(2), 3).unwrap();
-        assert_eq!(s.as_ptr(), &mut buf[2] as *mut _);
+        assert_eq!(s.ptr_guard().as_ptr(), &buf[2] as *const _);
     }
 
     /*
