@@ -77,12 +77,12 @@ impl<B: Bitmap> Bytes<MemoryRegionAddress> for GuestRegionHybrid<B> {
         F: Read,
     {
         match self {
-            GuestRegionHybrid::Mmap(region) => region.read_from(addr, src, count),
-            GuestRegionHybrid::Raw(region) => region.read_from(addr, src, count),
+            GuestRegionHybrid::Mmap(region) => region.read_volatile_from(addr, src, count),
+            GuestRegionHybrid::Raw(region) => region.read_volatile_from(addr, src, count),
         }
     }
 
-    fn read_exact_from<F>(
+    fn read_exact_volatile_from<F>(
         &self,
         addr: MemoryRegionAddress,
         src: &mut F,
@@ -92,12 +92,12 @@ impl<B: Bitmap> Bytes<MemoryRegionAddress> for GuestRegionHybrid<B> {
         F: Read,
     {
         match self {
-            GuestRegionHybrid::Mmap(region) => region.read_exact_from(addr, src, count),
-            GuestRegionHybrid::Raw(region) => region.read_exact_from(addr, src, count),
+            GuestRegionHybrid::Mmap(region) => region.read_exact_volatile_from(addr, src, count),
+            GuestRegionHybrid::Raw(region) => region.read_exact_volatile_from(addr, src, count),
         }
     }
 
-    fn write_to<F>(
+    fn write_volatile_to<F>(
         &self,
         addr: MemoryRegionAddress,
         dst: &mut F,
@@ -107,12 +107,12 @@ impl<B: Bitmap> Bytes<MemoryRegionAddress> for GuestRegionHybrid<B> {
         F: Write,
     {
         match self {
-            GuestRegionHybrid::Mmap(region) => region.write_to(addr, dst, count),
-            GuestRegionHybrid::Raw(region) => region.write_to(addr, dst, count),
+            GuestRegionHybrid::Mmap(region) => region.write_volatile_to(addr, dst, count),
+            GuestRegionHybrid::Raw(region) => region.write_volatile_to(addr, dst, count),
         }
     }
 
-    fn write_all_to<F>(
+    fn write_all_volatile_to<F>(
         &self,
         addr: MemoryRegionAddress,
         dst: &mut F,
@@ -122,8 +122,8 @@ impl<B: Bitmap> Bytes<MemoryRegionAddress> for GuestRegionHybrid<B> {
         F: Write,
     {
         match self {
-            GuestRegionHybrid::Mmap(region) => region.write_all_to(addr, dst, count),
-            GuestRegionHybrid::Raw(region) => region.write_all_to(addr, dst, count),
+            GuestRegionHybrid::Mmap(region) => region.write_all_volatile_to(addr, dst, count),
+            GuestRegionHybrid::Raw(region) => region.write_all_volatile_to(addr, dst, count),
         }
     }
 
@@ -654,14 +654,14 @@ mod tests {
         // Rewind file pointer after write operation.
         file_to_write_mmap_region.rewind().unwrap();
         guest_region
-            .read_from(write_addr, &mut file_to_write_mmap_region, size_of_file)
+            .read_volatile_from(write_addr, &mut file_to_write_mmap_region, size_of_file)
             .unwrap();
         let mut file_read_from_mmap_region = TempFile::new().unwrap().into_file();
         file_read_from_mmap_region
             .set_len(size_of_file as u64)
             .unwrap();
         guest_region
-            .write_all_to(write_addr, &mut file_read_from_mmap_region, size_of_file)
+            .write_all_volatile_to(write_addr, &mut file_read_from_mmap_region, size_of_file)
             .unwrap();
         // Rewind file pointer after write operation.
         file_read_from_mmap_region.rewind().unwrap();
@@ -679,7 +679,7 @@ mod tests {
         let invalid_addr = MemoryRegionAddress(0x900);
         assert!(matches!(
             guest_region
-                .read_from(invalid_addr, &mut file_to_write_mmap_region, size_of_file)
+                .read_volatile_from(invalid_addr, &mut file_to_write_mmap_region, size_of_file)
                 .err()
                 .unwrap(),
             GuestMemoryError::InvalidBackendAddress
@@ -689,7 +689,7 @@ mod tests {
         let invalid_addr = MemoryRegionAddress(0x900);
         assert!(matches!(
             guest_region
-                .write_to(invalid_addr, &mut file_read_from_mmap_region, size_of_file)
+                .write_volatile_to(invalid_addr, &mut file_read_from_mmap_region, size_of_file)
                 .err()
                 .unwrap(),
             GuestMemoryError::InvalidBackendAddress
@@ -719,14 +719,14 @@ mod tests {
         // Rewind file pointer after write operation.
         file_to_write_mmap_region.rewind().unwrap();
         guest_region
-            .read_from(write_addr, &mut file_to_write_mmap_region, size_of_file)
+            .read_volatile_from(write_addr, &mut file_to_write_mmap_region, size_of_file)
             .unwrap();
         let mut file_read_from_mmap_region = TempFile::new().unwrap().into_file();
         file_read_from_mmap_region
             .set_len(size_of_file as u64)
             .unwrap();
         guest_region
-            .write_all_to(write_addr, &mut file_read_from_mmap_region, size_of_file)
+            .write_all_volatile_to(write_addr, &mut file_read_from_mmap_region, size_of_file)
             .unwrap();
         // Rewind file pointer after write operation.
         file_read_from_mmap_region.rewind().unwrap();
@@ -744,7 +744,7 @@ mod tests {
         let invalid_addr = MemoryRegionAddress(0x900);
         assert!(matches!(
             guest_region
-                .read_from(invalid_addr, &mut file_to_write_mmap_region, size_of_file)
+                .read_volatile_from(invalid_addr, &mut file_to_write_mmap_region, size_of_file)
                 .err()
                 .unwrap(),
             GuestMemoryError::InvalidBackendAddress
@@ -754,7 +754,7 @@ mod tests {
         let invalid_addr = MemoryRegionAddress(0x900);
         assert!(matches!(
             guest_region
-                .write_to(invalid_addr, &mut file_read_from_mmap_region, size_of_file)
+                .write_volatile_to(invalid_addr, &mut file_read_from_mmap_region, size_of_file)
                 .err()
                 .unwrap(),
             GuestMemoryError::InvalidBackendAddress
@@ -788,14 +788,14 @@ mod tests {
             .unwrap();
         file_to_write_mmap_region.rewind().unwrap();
         guest_mmap_region
-            .read_exact_from(write_addr, &mut file_to_write_mmap_region, size_of_file)
+            .read_exact_volatile_from(write_addr, &mut file_to_write_mmap_region, size_of_file)
             .unwrap();
         let mut file_read_from_mmap_region = TempFile::new().unwrap().into_file();
         file_read_from_mmap_region
             .set_len(size_of_file as u64)
             .unwrap();
         guest_mmap_region
-            .write_all_to(write_addr, &mut file_read_from_mmap_region, size_of_file)
+            .write_all_volatile_to(write_addr, &mut file_read_from_mmap_region, size_of_file)
             .unwrap();
         file_read_from_mmap_region.rewind().unwrap();
         let mut content = String::new();
@@ -818,14 +818,14 @@ mod tests {
             .unwrap();
         file_to_write_raw_region.rewind().unwrap();
         guest_raw_region
-            .read_exact_from(write_addr, &mut file_to_write_raw_region, size_of_file)
+            .read_exact_volatile_from(write_addr, &mut file_to_write_raw_region, size_of_file)
             .unwrap();
         let mut file_read_from_raw_region = TempFile::new().unwrap().into_file();
         file_read_from_raw_region
             .set_len(size_of_file as u64)
             .unwrap();
         guest_raw_region
-            .write_all_to(write_addr, &mut file_read_from_raw_region, size_of_file)
+            .write_all_volatile_to(write_addr, &mut file_read_from_raw_region, size_of_file)
             .unwrap();
         file_read_from_raw_region.rewind().unwrap();
         let mut content = String::new();
@@ -842,7 +842,7 @@ mod tests {
         let invalid_addr = MemoryRegionAddress(0x900);
         assert!(matches!(
             guest_mmap_region
-                .read_exact_from(invalid_addr, &mut file_to_write_mmap_region, size_of_file)
+                .read_exact_volatile_from(invalid_addr, &mut file_to_write_mmap_region, size_of_file)
                 .err()
                 .unwrap(),
             GuestMemoryError::InvalidBackendAddress
@@ -852,7 +852,7 @@ mod tests {
         let invalid_addr = MemoryRegionAddress(0x900);
         assert!(matches!(
             guest_mmap_region
-                .write_all_to(invalid_addr, &mut file_read_from_mmap_region, size_of_file)
+                .write_all_volatile_to(invalid_addr, &mut file_read_from_mmap_region, size_of_file)
                 .err()
                 .unwrap(),
             GuestMemoryError::InvalidBackendAddress
@@ -862,7 +862,7 @@ mod tests {
         let invalid_addr = MemoryRegionAddress(0x900);
         assert!(matches!(
             guest_raw_region
-                .read_exact_from(invalid_addr, &mut file_to_write_raw_region, size_of_file)
+                .read_exact_volatile_from(invalid_addr, &mut file_to_write_raw_region, size_of_file)
                 .err()
                 .unwrap(),
             GuestMemoryError::InvalidBackendAddress
@@ -872,7 +872,7 @@ mod tests {
         let invalid_addr = MemoryRegionAddress(0x900);
         assert!(matches!(
             guest_raw_region
-                .write_all_to(invalid_addr, &mut file_read_from_raw_region, size_of_file)
+                .write_all_volatile_to(invalid_addr, &mut file_read_from_raw_region, size_of_file)
                 .err()
                 .unwrap(),
             GuestMemoryError::InvalidBackendAddress

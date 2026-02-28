@@ -600,7 +600,7 @@ mod tests {
                 File::open(Path::new("c:\\Windows\\system32\\ntoskrnl.exe")).unwrap()
             };
             gm.write_obj(!0u32, addr).unwrap();
-            gm.read_exact_from(addr, &mut file, mem::size_of::<u32>())
+            gm.read_exact_volatile_from(addr, &mut file, mem::size_of::<u32>())
                 .unwrap();
             let value: u32 = gm.read_obj(addr).unwrap();
             if cfg!(unix) {
@@ -610,7 +610,7 @@ mod tests {
             }
 
             let mut sink = Vec::new();
-            gm.write_all_to(addr, &mut sink, mem::size_of::<u32>())
+            gm.write_all_volatile_to(addr, &mut sink, mem::size_of::<u32>())
                 .unwrap();
             if cfg!(unix) {
                 assert_eq!(sink, vec![0; mem::size_of::<u32>()]);
