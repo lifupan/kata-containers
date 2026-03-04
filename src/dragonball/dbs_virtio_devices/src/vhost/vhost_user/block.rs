@@ -563,6 +563,7 @@ mod tests {
     use dbs_interrupt::{InterruptManager, InterruptSourceType, MsiNotifier, NoopNotifier};
     use dbs_utils::epoll_manager::EpollManager;
     use kvm_ioctls::Kvm;
+    use test_utils::skip_if_kvm_unaccessable;
     use vhost_rs::vhost_user::message::{
         VhostUserConfig, VhostUserProtocolFeatures, VhostUserU64, VhostUserVirtioFeatures,
     };
@@ -692,6 +693,7 @@ mod tests {
 
     #[test]
     fn test_vhost_user_block_virtio_device_activate_spdk() {
+        skip_if_kvm_unaccessable!();
         let socket_path = concat!("vhost.", line!());
 
         let handler = thread::spawn(move || {
