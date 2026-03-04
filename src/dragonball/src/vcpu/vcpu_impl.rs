@@ -829,7 +829,10 @@ pub mod tests {
                 EmulationCase::InternalError => Ok(VcpuExit::InternalError),
                 EmulationCase::Unknown => Ok(VcpuExit::Unknown),
                 EmulationCase::SystemEvent(event_type, event_flags) => {
-                    Ok(VcpuExit::SystemEvent(*event_type, event_flags))
+                    // Leak the flags to satisfy the 'static lifetime requirement of VcpuExit::SystemEvent.
+                    // This is acceptable in test code as it only runs briefly.
+                    let flags: &[u64] = Box::leak(event_flags.clone().into_boxed_slice());
+                    Ok(VcpuExit::SystemEvent(*event_type, flags))
                 }
                 EmulationCase::Error(e) => Err(kvm_ioctls::Error::new(*e)),
             }
