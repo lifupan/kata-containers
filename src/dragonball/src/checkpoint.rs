@@ -28,6 +28,12 @@ use crate::vm::Vm;
 // Page size constant (4 KiB).
 const PAGE_SIZE: usize = 4096;
 
+// Maximum size for a single memory range during restore (1 GiB).
+const MAX_RANGE_LENGTH: u64 = 1024 * 1024 * 1024;
+
+// Maximum size for the JSON state file (100 MiB).
+const MAX_STATE_FILE_SIZE: u64 = 100 * 1024 * 1024;
+
 /// Errors associated with checkpoint and restore operations.
 #[derive(Debug, thiserror::Error)]
 pub enum CheckpointError {
@@ -765,8 +771,13 @@ pub fn save_guest_memory(
 
                 let range_offset = (start * PAGE_SIZE) as u64;
                 let range_length = ((end - start) * PAGE_SIZE) as u64;
-                // Clamp to actual region size.
-                let actual_length = std::cmp::min(range_length, region_size - range_offset);
+                // Clamp to actual region size, handling the case where
+                // range_offset exceeds region_size.
+                let actual_length = if range_offset >= region_size {
+                    0
+                } else {
+                    std::cmp::min(range_length, region_size - range_offset)
+                };
 
                 if actual_length > 0 {
                     // Write the memory data to file.
@@ -820,6 +831,17 @@ pub fn restore_guest_memory(
         .map_err(|e| CheckpointError::RestoreMemory(format!("open memory file: {}", e)))?;
 
     for range in &state.resident_ranges {
+        // Validate range length to prevent excessive memory allocation.
+        if range.length > MAX_RANGE_LENGTH {
+            return Err(CheckpointError::RestoreMemory(format!(
+                "range length {} exceeds maximum allowed size {}",
+                range.length, MAX_RANGE_LENGTH
+            )));
+        }
+        if range.length == 0 {
+            continue;
+        }
+
         // Seek to the correct offset in the memory data file.
         mem_file
             .seek(SeekFrom::Start(range.offset))
@@ -830,7 +852,8 @@ pub fn restore_guest_memory(
             .read_exact(&mut buf)
             .map_err(|e| CheckpointError::RestoreMemory(format!("read data: {}", e)))?;
 
-        // Write the data back to guest memory.
+        // Write the data back to guest memory. The vm_memory library will
+        // validate that the guest address is within valid memory regions.
         memory
             .write(&buf, GuestAddress(range.guest_address))
             .map_err(|e| {
@@ -1028,11 +1051,26 @@ pub fn restore_vm(vm: &mut Vm, input_dir: &Path) -> Result<MicrovmState> {
 
     // Read and deserialize the state file.
     let state_file_path = input_dir.join("vm_state.json");
-    let mut state_file = File::open(&state_file_path)
+    let state_file = File::open(&state_file_path)
         .map_err(|e| CheckpointError::Io(io::Error::new(io::ErrorKind::Other, e.to_string())))?;
+
+    // Validate file size to prevent excessive memory allocation.
+    let file_size = state_file
+        .metadata()
+        .map_err(|e| CheckpointError::Io(io::Error::new(io::ErrorKind::Other, e.to_string())))?
+        .len();
+    if file_size > MAX_STATE_FILE_SIZE {
+        return Err(CheckpointError::Io(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "state file too large: {} bytes (max {})",
+                file_size, MAX_STATE_FILE_SIZE
+            ),
+        )));
+    }
+
     let mut state_json = String::new();
-    state_file
-        .read_to_string(&mut state_json)
+    io::Read::read_to_string(&mut io::BufReader::new(state_file), &mut state_json)
         .map_err(|e| CheckpointError::Io(io::Error::new(io::ErrorKind::Other, e.to_string())))?;
     let state: MicrovmState = serde_json::from_str(&state_json).map_err(|e| {
         CheckpointError::Serialization(format!("failed to deserialize state: {}", e))
