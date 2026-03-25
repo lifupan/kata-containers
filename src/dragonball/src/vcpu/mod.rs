@@ -8,6 +8,7 @@ mod vcpu_impl;
 mod vcpu_manager;
 
 use dbs_arch::VpmuFeatureLevel;
+pub use vcpu_impl::Vcpu;
 pub use vcpu_manager::{VcpuManager, VcpuManagerError, VcpuResizeInfo};
 
 #[cfg(feature = "hotplug")]

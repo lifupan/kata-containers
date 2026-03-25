@@ -16,6 +16,8 @@ extern crate lazy_static;
 pub mod address_space_manager;
 /// API to handle vmm requests.
 pub mod api;
+/// Checkpoint and restore support for virtual machines.
+pub mod checkpoint;
 /// Structs to maintain configuration information.
 pub mod config_manager;
 /// Device manager for virtual machines.

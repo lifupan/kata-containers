@@ -769,6 +769,7 @@ impl Vcpu {
         &self.fd
     }
 
+    /// Get the metrics for this vCPU.
     pub fn metrics(&self) -> Arc<VcpuMetrics> {
         self.metrics.clone()
     }

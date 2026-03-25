@@ -538,6 +538,32 @@ impl Vm {
         self.device_manager.reset_console()
     }
 
+    /// Checkpoint the VM state to the given directory.
+    ///
+    /// This saves the complete VM state including vCPU registers, guest memory
+    /// (using mincore to only save resident pages), and device states.
+    /// The vCPUs are paused during the checkpoint and resumed afterwards.
+    pub fn checkpoint(
+        &mut self,
+        output_dir: &std::path::Path,
+    ) -> std::result::Result<crate::checkpoint::MicrovmState, crate::checkpoint::CheckpointError>
+    {
+        crate::checkpoint::checkpoint_vm(self, output_dir)
+    }
+
+    /// Restore the VM state from the given checkpoint directory.
+    ///
+    /// This restores guest memory and device states from a previously saved
+    /// checkpoint. vCPU state is included in the returned `MicrovmState` for
+    /// the caller to apply during VM startup.
+    pub fn restore(
+        &mut self,
+        input_dir: &std::path::Path,
+    ) -> std::result::Result<crate::checkpoint::MicrovmState, crate::checkpoint::CheckpointError>
+    {
+        crate::checkpoint::restore_vm(self, input_dir)
+    }
+
     pub(crate) fn init_dmesg_logger(&mut self) {
         let writer = self.dmesg_logger();
         self.dmesg_fifo = Some(writer);
