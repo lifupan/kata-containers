@@ -110,6 +110,34 @@ impl Vmm {
         self.seccomp_filters.clone()
     }
 
+    /// Checkpoint the managed VM to the given directory.
+    ///
+    /// Saves the complete VM state including vCPU registers, guest memory,
+    /// and device states. Returns the saved state for optional inspection.
+    pub fn checkpoint(
+        &mut self,
+        output_dir: &std::path::Path,
+    ) -> std::result::Result<
+        crate::checkpoint::MicrovmState,
+        crate::checkpoint::CheckpointError,
+    > {
+        self.vm.checkpoint(output_dir)
+    }
+
+    /// Restore the managed VM from a checkpoint directory.
+    ///
+    /// Restores guest memory and device states. Returns the saved state
+    /// including vCPU state for the caller to apply.
+    pub fn restore(
+        &mut self,
+        input_dir: &std::path::Path,
+    ) -> std::result::Result<
+        crate::checkpoint::MicrovmState,
+        crate::checkpoint::CheckpointError,
+    > {
+        self.vm.restore(input_dir)
+    }
+
     /// Run the event loop to service API requests.
     ///
     /// # Arguments
