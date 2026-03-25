@@ -13,7 +13,7 @@
 //! for Dragonball's architecture.
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 use kvm_ioctls::VcpuFd;
@@ -359,9 +359,18 @@ pub struct FsDeviceState {
 // Complete Microvm State
 // ============================================================================
 
+/// Version of the checkpoint format for compatibility checking.
+pub const CHECKPOINT_VERSION: u32 = 1;
+
 /// Complete state of a microvm that can be serialized and restored.
+///
+/// Note: Checkpoints are only compatible with the same KVM version and
+/// architecture that was used to create them, as raw KVM register state
+/// is saved without version translation.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MicrovmState {
+    /// Checkpoint format version for compatibility checking.
+    pub version: u32,
     /// vCPU states for all vCPUs.
     pub vcpu_states: Vec<VcpuState>,
     /// Guest memory state (region metadata and resident ranges).
@@ -438,6 +447,8 @@ pub fn save_vcpu_state(vcpu_fd: &VcpuFd, vcpu_id: u8) -> Result<VcpuState> {
         .get_lapic()
         .map_err(|e| CheckpointError::SaveVcpuState(vcpu_id, format!("get_lapic: {}", e)))?;
     let lapic = VcpuLapic {
+        // Cast i8 to u8 for serialization - this is a bitwise identity cast that
+        // preserves the bit pattern (e.g., -1i8 becomes 255u8, and vice versa).
         regs: kvm_lapic.regs.iter().map(|&x| x as u8).collect(),
     };
 
@@ -509,8 +520,13 @@ pub fn save_vcpu_state(vcpu_fd: &VcpuFd, vcpu_id: u8) -> Result<VcpuState> {
 }
 
 /// Save the state of a single vCPU on aarch64.
+///
+/// # Arguments
+/// * `vcpu_fd` - The KVM vCPU file descriptor.
+/// * `vcpu_id` - The vCPU index.
+/// * `mpidr` - The MPIDR register value for this vCPU.
 #[cfg(target_arch = "aarch64")]
-pub fn save_vcpu_state(vcpu_fd: &VcpuFd, vcpu_id: u8) -> Result<VcpuState> {
+pub fn save_vcpu_state(vcpu_fd: &VcpuFd, vcpu_id: u8, mpidr: u64) -> Result<VcpuState> {
     // Save multiprocessor state.
     let kvm_mp_state = vcpu_fd
         .get_mp_state()
@@ -522,7 +538,7 @@ pub fn save_vcpu_state(vcpu_fd: &VcpuFd, vcpu_id: u8) -> Result<VcpuState> {
     Ok(VcpuState {
         id: vcpu_id,
         mp_state,
-        mpidr: 0,
+        mpidr,
     })
 }
 
@@ -577,6 +593,7 @@ pub fn restore_vcpu_state(vcpu_fd: &VcpuFd, state: &VcpuState) -> Result<()> {
     // Restore LAPIC state.
     if state.lapic.regs.len() == 1024 {
         let mut lapic = kvm_bindings::kvm_lapic_state::default();
+        // Cast u8 back to i8 - bitwise identity cast preserving the bit pattern.
         for (i, &byte) in state.lapic.regs[..1024].iter().enumerate() {
             lapic.regs[i] = byte as i8;
         }
@@ -804,6 +821,10 @@ pub fn restore_guest_memory(
 
     for range in &state.resident_ranges {
         // Seek to the correct offset in the memory data file.
+        mem_file
+            .seek(SeekFrom::Start(range.offset))
+            .map_err(|e| CheckpointError::RestoreMemory(format!("seek to offset: {}", e)))?;
+
         let mut buf = vec![0u8; range.length as usize];
         mem_file
             .read_exact(&mut buf)
@@ -902,7 +923,10 @@ pub fn save_all_vcpu_states(vcpu_manager: &VcpuManager) -> Result<Vec<VcpuState>
     for vcpu in vcpu_manager.vcpus() {
         let vcpu_fd = vcpu.vcpu_fd();
         let vcpu_id = vcpu.cpu_index();
+        #[cfg(target_arch = "x86_64")]
         let state = save_vcpu_state(vcpu_fd, vcpu_id)?;
+        #[cfg(target_arch = "aarch64")]
+        let state = save_vcpu_state(vcpu_fd, vcpu_id, vcpu.get_mpidr())?;
         vcpu_states.push(state);
     }
 
@@ -960,6 +984,7 @@ pub fn checkpoint_vm(vm: &mut Vm, output_dir: &Path) -> Result<MicrovmState> {
 
     // Create the complete state.
     let state = MicrovmState {
+        version: CHECKPOINT_VERSION,
         vcpu_states,
         memory_state,
         device_states,
@@ -1012,6 +1037,14 @@ pub fn restore_vm(vm: &mut Vm, input_dir: &Path) -> Result<MicrovmState> {
     let state: MicrovmState = serde_json::from_str(&state_json).map_err(|e| {
         CheckpointError::Serialization(format!("failed to deserialize state: {}", e))
     })?;
+
+    // Validate checkpoint version.
+    if state.version != CHECKPOINT_VERSION {
+        return Err(CheckpointError::VmState(format!(
+            "incompatible checkpoint version: expected {}, got {}",
+            CHECKPOINT_VERSION, state.version
+        )));
+    }
 
     // Restore guest memory.
     if let Some(vm_as) = vm.vm_as() {
@@ -1075,12 +1108,14 @@ mod tests {
     #[test]
     fn test_microvm_state_serialization() {
         let state = MicrovmState {
+            version: CHECKPOINT_VERSION,
             vcpu_states: Vec::new(),
             memory_state: GuestMemoryState::default(),
             device_states: DeviceStates::default(),
         };
         let json = serde_json::to_string(&state).unwrap();
         let deserialized: MicrovmState = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.version, CHECKPOINT_VERSION);
         assert!(deserialized.vcpu_states.is_empty());
         assert!(deserialized.memory_state.regions.is_empty());
     }
