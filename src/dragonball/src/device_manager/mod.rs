@@ -68,6 +68,23 @@ pub mod console_manager;
 /// Console Manager for virtual machines console device.
 pub use self::console_manager::ConsoleManager;
 
+/// Persistent state for legacy device checkpoint and restore.
+pub mod legacy_persistent;
+/// Persistent state for console manager checkpoint and restore.
+pub mod console_manager_persistent;
+/// Persistent state for block device checkpoint and restore.
+pub mod blk_dev_mgr_persistent;
+/// Persistent state for virtio-net device checkpoint and restore.
+pub mod virtio_net_dev_mgr_persistent;
+/// Persistent state for vsock device checkpoint and restore.
+pub mod vsock_dev_mgr_persistent;
+/// Persistent state for balloon device checkpoint and restore.
+pub mod balloon_dev_mgr_persistent;
+/// Persistent state for memory device checkpoint and restore.
+pub mod mem_dev_mgr_persistent;
+/// Persistent state for the overall device manager checkpoint and restore.
+pub mod device_manager_persistent;
+
 mod legacy;
 pub use self::legacy::{Error as LegacyDeviceError, LegacyDeviceManager};
 

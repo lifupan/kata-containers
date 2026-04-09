@@ -194,6 +194,13 @@ pub(crate) struct VcpuInfo {
     tid: u32,
 }
 
+impl VcpuInfo {
+    /// Get a reference to the vCPU file descriptor, if available.
+    pub(crate) fn vcpu_fd(&self) -> &Option<VcpuFd> {
+        &self.vcpu_fd
+    }
+}
+
 impl std::fmt::Debug for VcpuInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("VcpuInfo")
@@ -356,6 +363,11 @@ impl VcpuManager {
             }
         }
         vcpus
+    }
+
+    /// Get a reference to the internal vcpu_infos slice.
+    pub(crate) fn vcpu_infos(&self) -> &[VcpuInfo] {
+        &self.vcpu_infos
     }
 
     /// add reset event fd for each vcpu, if the reset_event_fd is already set, error will be returned.

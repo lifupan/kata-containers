@@ -7,6 +7,9 @@ mod sm;
 mod vcpu_impl;
 mod vcpu_manager;
 
+/// Persistent state for vCPU checkpoint and restore.
+pub mod vcpu_persistent;
+
 use dbs_arch::VpmuFeatureLevel;
 pub use vcpu_manager::{VcpuManager, VcpuManagerError, VcpuResizeInfo};
 

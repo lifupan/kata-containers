@@ -51,6 +51,9 @@ use dbs_arch::gic::Error as GICError;
 mod kernel_config;
 pub use self::kernel_config::KernelConfigInfo;
 
+/// Persistent state for VM checkpoint and restore.
+pub mod vm_persistent;
+
 #[cfg(target_arch = "aarch64")]
 #[path = "aarch64.rs"]
 mod aarch64;
