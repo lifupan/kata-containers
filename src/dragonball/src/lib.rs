@@ -16,6 +16,8 @@ extern crate lazy_static;
 pub mod address_space_manager;
 /// API to handle vmm requests.
 pub mod api;
+/// Checkpoint and restore framework for the VMM.
+pub mod checkpoint;
 /// Structs to maintain configuration information.
 pub mod config_manager;
 /// Device manager for virtual machines.
@@ -45,6 +47,8 @@ mod io_manager;
 mod test_utils;
 
 mod vmm;
+/// Top-level VMM checkpoint and restore implementation.
+mod vmm_persistent;
 
 pub use self::error::StartMicroVmError;
 pub use self::io_manager::IoManagerCached;
