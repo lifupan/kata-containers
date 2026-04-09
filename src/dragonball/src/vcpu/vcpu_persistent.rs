@@ -394,6 +394,8 @@ pub fn save_vcpu_state(vcpu_fd: &kvm_ioctls::VcpuFd, id: u8) -> Result<VcpuState
         CheckpointError::VcpuState(format!("failed to get lapic for vCPU {id}: {e}"))
     })?;
     let lapic = VcpuLapic {
+        // KVM defines LAPIC regs as i8 array but they are raw bytes;
+        // the `as u8` cast preserves the bit pattern.
         regs: kvm_lapic.regs.iter().map(|&b| b as u8).collect(),
     };
 
@@ -617,6 +619,8 @@ pub fn restore_vcpu_state(vcpu_fd: &kvm_ioctls::VcpuFd, state: &VcpuState) -> Re
     // Restore LAPIC
     let mut kvm_lapic = kvm_bindings::kvm_lapic_state::default();
     let len = std::cmp::min(state.lapic.regs.len(), kvm_lapic.regs.len());
+    // KVM defines LAPIC regs as i8 array but they are raw bytes;
+    // the `as i8` cast preserves the bit pattern (reverse of save).
     for i in 0..len {
         kvm_lapic.regs[i] = state.lapic.regs[i] as i8;
     }
